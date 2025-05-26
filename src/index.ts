@@ -14,6 +14,9 @@ const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
 
+const SOURCE_GROUP_ID = -1002139821173; // Replace with actual group ID if available
+const TARGET_CHANNEL_USERNAME = '@AkashTest_Series';
+
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
 
@@ -22,7 +25,6 @@ const bot = new Telegraf(BOT_TOKEN);
 // --- Commands ---
 bot.command('about', about());
 
-// Multiple triggers for help/material/pdf content
 const helpTriggers = ['help', 'study', 'material', 'pdf', 'pdfs'];
 helpTriggers.forEach(trigger => bot.command(trigger, help()));
 bot.hears(/^(help|study|material|pdf|pdfs)$/i, help());
@@ -30,7 +32,6 @@ bot.hears(/^(help|study|material|pdf|pdfs)$/i, help());
 // Admin: /users
 bot.command('users', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized.');
-
   try {
     const chatIds = await fetchChatIdsFromSheet();
     await ctx.reply(`📊 Total users: ${chatIds.length}`, {
@@ -53,7 +54,6 @@ bot.on('callback_query', async (ctx) => {
   const callback = ctx.callbackQuery;
   if ('data' in callback) {
     const data = callback.data;
-
     if (data.startsWith('help_page_')) {
       await handleHelpPagination()(ctx);
     } else if (data === 'refresh_users' && ctx.from?.id === ADMIN_ID) {
@@ -114,6 +114,42 @@ bot.on('text', async (ctx) => {
   }
 });
 
+// --- Forward Group Messages to Channel ---
+bot.on('message', async (ctx) => {
+  const chat = ctx.chat;
+
+  // Forward from group to channel
+  if (chat?.type === 'supergroup' && chat.username === 'testgroupp0') {
+    try {
+      await ctx.telegram.forwardMessage(
+        TARGET_CHANNEL_USERNAME,
+        chat.id,
+        ctx.message.message_id
+      );
+      console.log(`Forwarded message from group to channel.`);
+    } catch (err) {
+      console.error('Error forwarding message:', err);
+    }
+  }
+
+  // Track private users
+  if (chat?.type === 'private') {
+    const alreadyNotified = await saveToSheet(chat);
+    console.log(`Saved chat ID: ${chat.id} (${chat.type})`);
+
+    if (chat.id !== ADMIN_ID && !alreadyNotified) {
+      const user = ctx.from;
+      const name = user?.first_name || 'Unknown';
+      const username = user?.username ? `@${user.username}` : 'N/A';
+      await ctx.telegram.sendMessage(
+        ADMIN_ID,
+        `*New user interacted!*\n\n*Name:* ${name}\n*Username:* ${username}\n*Chat ID:* ${chat.id}\n*Type:* ${chat.type}`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+  }
+});
+
 // --- New Member Welcome (Group) ---
 bot.on('new_chat_members', async (ctx) => {
   for (const member of ctx.message.new_chat_members) {
@@ -123,44 +159,6 @@ bot.on('new_chat_members', async (ctx) => {
   }
 });
 
-// --- Message Tracker for Private Chats ---
-bot.on('message', async (ctx) => {
-  const chat = ctx.chat;
-  if (!chat?.id || !isPrivateChat(chat.type)) return;
-
-  const alreadyNotified = await saveToSheet(chat);
-  console.log(`Saved chat ID: ${chat.id} (${chat.type})`);
-
-  if (chat.id !== ADMIN_ID && !alreadyNotified) {
-    const user = ctx.from;
-    const name = user?.first_name || 'Unknown';
-    const username = user?.username ? `@${user.username}` : 'N/A';
-    await ctx.telegram.sendMessage(
-      ADMIN_ID,
-      `*New user interacted!*\n\n*Name:* ${name}\n*Username:* ${username}\n*Chat ID:* ${chat.id}\n*Type:* ${chat.type}`,
-      { parse_mode: 'Markdown' }
-    );
-  }
-});
-// --- Group to Channel Copy Handler ---
-bot.on('message', async (ctx) => {
-  const chat = ctx.chat;
-  const targetChannel = '@AkashTest_Series';
-
-  if (chat?.type === 'supergroup' || chat?.type === 'group') {
-    if (chat.username?.toLowerCase() === 'testgroupp0') {
-      try {
-        await ctx.telegram.copyMessage(
-          targetChannel,
-          chat.id,
-          ctx.message.message_id
-        );
-      } catch (err) {
-        console.error('Failed to copy group message:', err);
-      }
-    }
-  }
-});
 // --- Vercel Export ---
 export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
   await production(req, res, bot);
