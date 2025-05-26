@@ -1,13 +1,13 @@
-import { Telegraf, Context } from 'telegraf';
+import { Telegraf } from 'telegraf';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { saveToSheet } from './utils/saveToSheet';
 import { fetchChatIdsFromSheet } from './utils/chatStore';
 import { about } from './commands/about';
-import { help, handleHelpPagination } from './commands/help';
+import { help, handleHelpPagination, groupHelp } from './commands/help';
 import { pdf } from './commands/pdf';
 import { greeting } from './text/greeting';
 import { production, development } from './core';
-import { isPrivateChat } from './utils/groupSettings';
+import { isPrivateChat, isGroupChat } from './utils/groupSettings';
 import { setupBroadcast } from './commands/broadcast';
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
@@ -19,64 +19,15 @@ console.log(`Running bot in ${ENVIRONMENT} mode`);
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// --- Utility Functions ---
-async function isAdmin(ctx: Context, userId: number): Promise<boolean> {
-  if (userId === ADMIN_ID) return true;
-  if (!ctx.chat || isPrivateChat(ctx.chat.type)) return false;
-
-  try {
-    const admins = await ctx.telegram.getChatAdministrators(ctx.chat.id);
-    return admins.some(admin => admin.user.id === userId);
-  } catch (err) {
-    console.error('Error checking admin status:', err);
-    return false;
-  }
-}
-
-async function getGroupMembers(ctx: Context): Promise<any[]> {
-  if (!ctx.chat || isPrivateChat(ctx.chat.type)) return [];
-  try {
-    const members = await ctx.telegram.getChatMembersCount(ctx.chat.id);
-    // Note: Telegram API doesn't provide a direct way to get all members.
-    // This is a placeholder; you'll need a database or custom logic to track members.
-    // For now, we'll simulate by fetching recent message senders or use a stored list.
-    return []; // Replace with actual member fetching logic.
-  } catch (err) {
-    console.error('Error fetching group members:', err);
-    return [];
-  }
-}
-
-// --- Commands: General ---
+// --- Commands ---
 bot.command('about', about());
 
+// Multiple triggers for help/material/pdf content
 const helpTriggers = ['help', 'study', 'material', 'pdf', 'pdfs'];
-helpTriggers.forEach(trigger => bot.command(trigger, async (ctx) => {
-  if (ctx.chat && !isPrivateChat(ctx.chat.type)) {
-    // Group-specific help
-    const isUserAdmin = await isAdmin(ctx, ctx.from?.id || 0);
-    await ctx.reply(
-      `*Group Commands:*\n` +
-      `/help - Show this help message\n` +
-      `/about - About the bot\n` +
-      (isUserAdmin ? 
-        `*Admin Commands:*\n` +
-        `/all [message] - Mention all group members with a message\n` +
-        `/warn [user] [reason] - Warn a user\n` +
-        `/mute [user] [duration] - Mute a user (e.g., 1h, 1d)\n` +
-        `/ban [user] [reason] - Ban a user\n` +
-        `/users - Show total bot users (global admin only)`
-        : ''),
-      { parse_mode: 'Markdown' }
-    );
-  } else {
-    // Private chat help
-    await help()(ctx);
-  }
-}));
+helpTriggers.forEach(trigger => bot.command(trigger, help()));
 bot.hears(/^(help|study|material|pdf|pdfs)$/i, help());
 
-// --- Commands: Admin (Global) ---
+// Admin: /users
 bot.command('users', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized.');
 
@@ -97,120 +48,87 @@ bot.command('users', async (ctx) => {
 // Admin: /broadcast
 setupBroadcast(bot);
 
-// --- Commands: Group Admin ---
+// --- Group Admin Commands ---
 bot.command('all', async (ctx) => {
-  if (!ctx.chat || isPrivateChat(ctx.chat.type)) {
-    return ctx.reply('This command is only available in groups.');
-  }
-
-  if (!(await isAdmin(ctx, ctx.from?.id || 0))) {
-    return ctx.reply('You are not authorized to use this command.');
-  }
-
-  const message = ctx.message?.text?.split(' ').slice(1).join(' ') || 'Hello!';
-  const members = await getGroupMembers(ctx);
-  if (members.length === 0) {
-    return ctx.reply('No members found or unable to fetch members.');
-  }
-
-  const chunkSize = 5; // Number of mentions per message to avoid Telegram limits
-  const chunks: string[] = [];
-  let currentChunk = '';
-
-  for (const member of members) {
-    const mention = member.username ? `[${member.first_name}](tg://user?id=${member.id})` : member.first_name;
-    const line = `${mention}: ${message}\n`;
-    if ((currentChunk + line).length > 4000) { // Telegram message length limit
-      chunks.push(currentChunk);
-      currentChunk = '';
+  if (!isGroupChat(ctx.chat?.type)) return;
+  
+  try {
+    // Check if user is admin
+    const member = await ctx.getChatMember(ctx.from.id);
+    if (!['administrator', 'creator'].includes(member.status)) {
+      return ctx.reply('Only admins can use this command.');
     }
-    currentChunk += line;
-  }
-  if (currentChunk) chunks.push(currentChunk);
 
-  for (const chunk of chunks) {
-    await ctx.reply(chunk, { parse_mode: 'Markdown' });
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Avoid rate limits
+    const message = ctx.message.text.replace('/all', '').trim();
+    if (!message) return ctx.reply('Please provide a message after /all');
+
+    // Get all chat members
+    const members = [];
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const chunk = await ctx.getChatAdministrators({ limit: 100, offset });
+      members.push(...chunk);
+      offset += 100;
+      hasMore = chunk.length === 100;
+    }
+
+    // Filter out bots and send mentions in chunks
+    const users = members
+      .filter(m => !m.user.is_bot && m.user.username)
+      .map(m => `@${m.user.username}`);
+
+    // Send mentions in batches of 5 to avoid rate limiting
+    const batchSize = 5;
+    for (let i = 0; i < users.length; i += batchSize) {
+      const batch = users.slice(i, i + batchSize);
+      await ctx.reply(`${message}\n${batch.join(' ')}`, {
+        disable_notification: true
+      });
+      // Delay to avoid rate limiting
+      if (i + batchSize < users.length) await new Promise(r => setTimeout(r, 1000));
+    }
+
+  } catch (err) {
+    console.error('Error in /all command:', err);
+    await ctx.reply('❌ Error processing your request.');
   }
 });
 
-bot.command('warn', async (ctx) => {
-  if (!ctx.chat || isPrivateChat(ctx.chat.type)) return;
-  if (!(await isAdmin(ctx, ctx.from?.id || 0))) {
-    return ctx.reply('You are not authorized.');
-  }
-
-  const args = ctx.message?.text?.split(' ').slice(1) || [];
-  const targetUser = ctx.message?.reply_to_message?.from || (args[0]?.startsWith('@') ? { username: args[0] } : null);
-  const reason = args.slice(1).join(' ') || 'No reason provided';
-
-  if (!targetUser) {
-    return ctx.reply('Please reply to a user or provide a username.');
-  }
-
-  await ctx.reply(
-    `${targetUser.username || targetUser.first_name}, you have been warned: ${reason}`,
-    { parse_mode: 'Markdown' }
+// Group help command
+bot.command('ghelp', async (ctx) => {
+  if (!isGroupChat(ctx.chat?.type)) return;
+  
+  const isAdmin = ['administrator', 'creator'].includes(
+    (await ctx.getChatMember(ctx.from.id)).status
   );
+
+  await groupHelp(isAdmin)(ctx);
 });
 
-bot.command('mute', async (ctx) => {
-  if (!ctx.chat || isPrivateChat(ctx.chat.type)) return;
-  if (!(await isAdmin(ctx, ctx.from?.id || 0))) {
-    return ctx.reply('You are not authorized.');
-  }
-
-  const args = ctx.message?.text?.split(' ').slice(1) || [];
-  const targetUser = ctx.message?.reply_to_message?.from || (args[0]?.startsWith('@') ? { username: args[0] } : null);
-  const duration = args[1] || '1h';
-
-  if (!targetUser) {
-    return ctx.reply('Please reply to a user or provide a username.');
-  }
-
-  // Parse duration (e.g., 1h, 1d)
-  const durationSeconds = duration.match(/(\d+)([hdm])/i)?.[1] 
-    ? parseInt(duration.match(/(\d+)([hdm])/i)![1]) * { h: 3600, d: 86400, m: 60 }[duration.match(/(\d+)([hdm])/i)![2].toLowerCase()]
-    : 3600; // Default to 1 hour
+// Group info command
+bot.command('ginfo', async (ctx) => {
+  if (!isGroupChat(ctx.chat?.type)) return;
 
   try {
-    await ctx.telegram.restrictChatMember(ctx.chat.id, targetUser.id, {
-      until_date: Math.floor(Date.now() / 1000) + durationSeconds,
-      permissions: { can_send_messages: false },
-    });
-    await ctx.reply(
-      `${targetUser.username || targetUser.first_name} has been muted for ${duration}.`,
-      { parse_mode: 'Markdown' }
+    const chat = await ctx.getChat();
+    const admins = await ctx.getChatAdministrators();
+    
+    let adminList = admins
+      .filter(a => !a.user.is_bot)
+      .map(a => a.user.username ? `@${a.user.username}` : a.user.first_name)
+      .join('\n');
+
+    await ctx.replyWithMarkdown(
+      `*Group Info*\n\n` +
+      `*Title:* ${chat.title}\n` +
+      `*Members:* ${chat.members_count}\n` +
+      `*Admins (${admins.length - 1}):*\n${adminList}`
     );
   } catch (err) {
-    console.error('Error muting user:', err);
-    await ctx.reply('Failed to mute user.');
-  }
-});
-
-bot.command('ban', async (ctx) => {
-  if (!ctx.chat || isPrivateChat(ctx.chat.type)) return;
-  if (!(await isAdmin(ctx, ctx.from?.id || 0))) {
-    return ctx.reply('You are not authorized.');
-  }
-
-  const args = ctx.message?.text?.split(' ').slice(1) || [];
-  const targetUser = ctx.message?.reply_to_message?.from || (args[0]?.startsWith('@') ? { username: args[0] } : null);
-  const reason = args.slice(1).join(' ') || 'No reason provided';
-
-  if (!targetUser) {
-    return ctx.reply('Please reply to a user or provide a username.');
-  }
-
-  try {
-    await ctx.telegram.banChatMember(ctx.chat.id, targetUser.id);
-    await ctx.reply(
-      `${targetUser.username || targetUser.first_name} has been banned: ${reason}`,
-      { parse_mode: 'Markdown' }
-    );
-  } catch (err) {
-    console.error('Error banning user:', err);
-    await ctx.reply('Failed to ban user.');
+    console.error('Error in /ginfo:', err);
+    await ctx.reply('❌ Could not fetch group info.');
   }
 });
 
@@ -269,14 +187,16 @@ bot.start(async (ctx) => {
 
 // --- Text Handler ---
 bot.on('text', async (ctx) => {
-  if (!ctx.chat || !isPrivateChat(ctx.chat.type)) return;
+  if (!ctx.chat) return;
 
-  const text = ctx.message.text?.toLowerCase();
-  if (['help', 'study', 'material', 'pdf', 'pdfs'].includes(text)) {
-    await help()(ctx);
-  } else {
-    await greeting()(ctx);
-    await pdf()(ctx);
+  if (isPrivateChat(ctx.chat.type)) {
+    const text = ctx.message.text?.toLowerCase();
+    if (['help', 'study', 'material', 'pdf', 'pdfs'].includes(text)) {
+      await help()(ctx);
+    } else {
+      await greeting()(ctx);
+      await pdf()(ctx);
+    }
   }
 });
 
@@ -284,7 +204,18 @@ bot.on('text', async (ctx) => {
 bot.on('new_chat_members', async (ctx) => {
   for (const member of ctx.message.new_chat_members) {
     if (member.username === ctx.botInfo.username) {
-      await ctx.reply('Thanks for adding me! Type /help to get started.');
+      await ctx.reply(
+        'Thanks for adding me to the group! Here are things I can do:\n\n' +
+        '• /ghelp - Show group commands\n' +
+        '• /ginfo - Show group information\n' +
+        'Admins can use /all to mention everyone'
+      );
+    } else {
+      // Welcome new members
+      await ctx.replyWithMarkdown(
+        `Welcome [${member.first_name}](tg://user?id=${member.id}) to the group! ` +
+        `Type /help to see what I can do.`
+      );
     }
   }
 });
@@ -309,28 +240,42 @@ bot.on('message', async (ctx) => {
   }
 });
 
-// --- Channel Post Copying (No Forwarded Link) ---
+// --- Channel Post Forwarding (without "forwarded from") ---
 bot.on('channel_post', async (ctx) => {
-  const sourceChannel = ctx.channelPost?.chat?.username?.toLowerCase();
+  const sourceChannel = ctx.channelPost?.chat?.username;
   const targetChannel = '@AkashTest_Series';
 
-  if (sourceChannel === 'akashaiats2026') {
+  if (sourceChannel?.toLowerCase() === 'akashaiats2026') {
     try {
+      // Instead of forwarding, create a new message with the same content
       const post = ctx.channelPost;
-      if (post.text) {
-        await ctx.telegram.sendMessage(targetChannel, post.text, { parse_mode: 'Markdown' });
-      } else if (post.photo) {
-        const photo = post.photo[post.photo.length - 1]; // Get highest resolution
-        await ctx.telegram.sendPhoto(targetChannel, photo.file_id, {
-          caption: post.caption || '',
-          parse_mode: 'Markdown',
-        });
+      let caption = post.caption || '';
+      
+      if (post.photo) {
+        await ctx.telegram.sendPhoto(
+          targetChannel,
+          post.photo[post.photo.length - 1].file_id,
+          { caption }
+        );
+      } else if (post.video) {
+        await ctx.telegram.sendVideo(
+          targetChannel,
+          post.video.file_id,
+          { caption }
+        );
       } else if (post.document) {
-        await ctx.telegram.sendDocument(targetChannel, post.document.file_id, {
-          caption: post.caption || '',
-          parse_mode: 'Markdown',
-        });
+        await ctx.telegram.sendDocument(
+          targetChannel,
+          post.document.file_id,
+          { caption }
+        );
+      } else if (post.text) {
+        await ctx.telegram.sendMessage(
+          targetChannel,
+          post.text
+        );
       }
+      
       console.log(`Copied message from @${sourceChannel} to ${targetChannel}`);
     } catch (error) {
       console.error('Failed to copy message:', error);
