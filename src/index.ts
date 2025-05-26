@@ -13,10 +13,11 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const GROUP_HANDLE = '@testgroupp0';
+const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID || ''; // Set this in Vercel environment variables
 const CHANNEL_HANDLE = '@AkashTest_Series';
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
+if (!GROUP_CHAT_ID) console.warn('GROUP_CHAT_ID not set in environment variables. Use /getchatid to find it.');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
 
 const bot = new Telegraf(BOT_TOKEN);
@@ -49,6 +50,18 @@ bot.command('users', async (ctx) => {
 
 // Admin: /broadcast
 setupBroadcast(bot);
+
+// --- Admin: /getchatid (Temporary command to log chat ID) ---
+bot.command('getchatid', async (ctx) => {
+  if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized.');
+  if (!ctx.chat) return ctx.reply('No chat context available.');
+
+  await ctx.reply(
+    `Chat ID: ${ctx.chat.id}\nType: ${ctx.chat.type}\nUsername: ${('username' in ctx.chat ? ctx.chat.username : 'N/A')}`,
+    { parse_mode: 'Markdown' }
+  );
+  console.log(`Chat ID: ${ctx.chat.id}, Type: ${ctx.chat.type}, Username: ${('username' in ctx.chat ? ctx.chat.username : 'N/A')}`);
+});
 
 // --- Callback Handler ---
 bot.on('callback_query', async (ctx) => {
@@ -121,6 +134,7 @@ bot.on('new_chat_members', async (ctx) => {
   for (const member of ctx.message.new_chat_members) {
     if (member.username === ctx.botInfo.username) {
       await ctx.reply('Thanks for adding me! Type /help to get started.');
+      console.log(`Bot added to chat ID: ${ctx.chat?.id}, Type: ${ctx.chat?.type}`);
     }
   }
 });
@@ -150,24 +164,21 @@ bot.on('message', async (ctx) => {
   const chat = ctx.chat;
   if (!chat?.id) return;
 
-  // Check if the message is from the specified group (@testgroupp0)
-  if (chat.type === 'supergroup') {
-    // Ensure the chat has a username and matches GROUP_HANDLE
-    if ('username' in chat && chat.username?.toLowerCase() === GROUP_HANDLE.toLowerCase()) {
-      try {
-        // Forward the message to the channel
-        await ctx.telegram.forwardMessage(
-          CHANNEL_HANDLE,
-          chat.id,
-          ctx.message.message_id
-        );
-        console.log(`Forwarded message ${ctx.message.message_id} from ${GROUP_HANDLE} to ${CHANNEL_HANDLE}`);
-      } catch (err) {
-        console.error(`Error forwarding message to ${CHANNEL_HANDLE}:`, err);
-        // Notify admin if forwarding fails (e.g., bot not admin in channel)
-        if (ctx.from?.id === ADMIN_ID) {
-          await ctx.reply(`❌ Failed to forward message to ${CHANNEL_HANDLE}. Ensure the bot is an admin in the channel.`);
-        }
+  // Check if the message is from the specified group (using chat ID)
+  if ((chat.type === 'group' || chat.type === 'supergroup') && chat.id.toString() === GROUP_CHAT_ID) {
+    try {
+      // Forward the message to the channel
+      await ctx.telegram.forwardMessage(
+        CHANNEL_HANDLE,
+        chat.id,
+        ctx.message.message_id
+      );
+      console.log(`Forwarded message ${ctx.message.message_id} from chat ID ${chat.id} to ${CHANNEL_HANDLE}`);
+    } catch (err) {
+      console.error(`Error forwarding message to ${CHANNEL_HANDLE}:`, err);
+      // Notify admin if forwarding fails
+      if (ctx.from?.id === ADMIN_ID) {
+        await ctx.reply(`❌ Failed to forward message to ${CHANNEL_HANDLE}. Ensure the bot is an admin in the channel.`);
       }
     }
   }
