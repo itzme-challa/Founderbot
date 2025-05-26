@@ -14,7 +14,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
 
-const SOURCE_GROUP_ID = -1002139821173; // Replace with actual group ID if available
+const SOURCE_GROUP_ID = -1002196697906; // Replace with actual group ID if available
 const TARGET_CHANNEL_USERNAME = '@AkashTest_Series';
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
