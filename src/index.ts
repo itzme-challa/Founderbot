@@ -148,7 +148,7 @@ bot.on('channel_post', async (ctx) => {
   const sourceChannel = ctx.channelPost?.chat?.username;
   const targetChannel = '@AkashTest_Series';
 
-  if (sourceChannel?.toLowerCase() === 'akashaiats2026') {
+  if (sourceChannel?.toLowerCase() === 'testgroupp0') {
     try {
       await ctx.telegram.copyMessage(
         targetChannel,
