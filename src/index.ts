@@ -13,8 +13,9 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const SOURCE_GROUP = '@testgroupp0'; // Source group
-const TARGET_GROUP = '@test20287h'; // Target group where bot is admin
+// Use group IDs for reliability (replace with actual group IDs)
+const SOURCE_GROUP = '-1002249681289'; // Replace with source group chat ID
+const TARGET_GROUP = '-1002196697906'; // Replace with target group chat ID
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
@@ -148,8 +149,9 @@ bot.on('message', async (ctx) => {
 // --- Group Message Forwarding ---
 bot.on('message', async (ctx) => {
   const chat = ctx.chat;
-  if (!chat || chat.type !== 'supergroup' && chat.type !== 'group') return;
-  if (chat.username !== SOURCE_GROUP && chat.id !== Number(SOURCE_GROUP)) return;
+  if (!chat || (chat.type !== 'supergroup' && chat.type !== 'group')) return;
+  // Compare chat IDs as strings to ensure type consistency
+  if (String(chat.id) !== SOURCE_GROUP) return;
 
   const message = ctx.message;
   if (!message) return;
@@ -157,11 +159,13 @@ bot.on('message', async (ctx) => {
   try {
     await ctx.telegram.forwardMessage(TARGET_GROUP, chat.id, message.message_id);
     console.log(`Forwarded message ${message.message_id} from ${SOURCE_GROUP} to ${TARGET_GROUP}`);
-  } catch (err) {
+  } catch (err: unknown) {
+    // Type the error as an Error object
+    const errorMessage = err instanceof Error ? err.message : String(err);
     console.error(`Error forwarding message from ${SOURCE_GROUP} to ${TARGET_GROUP}:`, err);
     await ctx.telegram.sendMessage(
       ADMIN_ID,
-      `❌ Failed to forward message from ${SOURCE_GROUP} to ${TARGET_GROUP}.\nError: ${err.message}`,
+      `❌ Failed to forward message from ${SOURCE_GROUP} to ${TARGET_GROUP}.\nError: ${errorMessage}`,
       { parse_mode: 'Markdown' }
     );
   }
