@@ -142,22 +142,21 @@ bot.on('message', async (ctx) => {
     );
   }
 });
+// ... (imports remain unchanged)
 
-// --- Channel Post Forwarding ---
 bot.on('channel_post', async (ctx) => {
   const sourceChannel = ctx.channelPost?.chat?.username;
   const targetChannel = '@AkashTest_Series';
 
   if (sourceChannel?.toLowerCase() === 'akashaiats2026') {
     try {
-      await ctx.telegram.forwardMessage(
+      await ctx.telegram.copyMessage(
         targetChannel,
         ctx.channelPost.chat.id,
         ctx.channelPost.message_id
       );
-      console.log(`Forwarded message from @${sourceChannel} to ${targetChannel}`);
     } catch (error) {
-      console.error('Failed to forward message:', error);
+      console.error('Failed to copy channel post:', error);
     }
   }
 });
