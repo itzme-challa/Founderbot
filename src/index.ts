@@ -13,9 +13,8 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-
-const SOURCE_GROUP_ID = -1002196697906; // Replace with actual group ID if available
-const TARGET_CHANNEL_USERNAME = '@AkashTest_Series';
+const GROUP_HANDLE = '@testgroupp0';
+const CHANNEL_HANDLE = '@AkashTest_Series';
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
@@ -25,6 +24,7 @@ const bot = new Telegraf(BOT_TOKEN);
 // --- Commands ---
 bot.command('about', about());
 
+// Multiple triggers for help/material/pdf content
 const helpTriggers = ['help', 'study', 'material', 'pdf', 'pdfs'];
 helpTriggers.forEach(trigger => bot.command(trigger, help()));
 bot.hears(/^(help|study|material|pdf|pdfs)$/i, help());
@@ -32,6 +32,7 @@ bot.hears(/^(help|study|material|pdf|pdfs)$/i, help());
 // Admin: /users
 bot.command('users', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized.');
+
   try {
     const chatIds = await fetchChatIdsFromSheet();
     await ctx.reply(`📊 Total users: ${chatIds.length}`, {
@@ -54,6 +55,7 @@ bot.on('callback_query', async (ctx) => {
   const callback = ctx.callbackQuery;
   if ('data' in callback) {
     const data = callback.data;
+
     if (data.startsWith('help_page_')) {
       await handleHelpPagination()(ctx);
     } else if (data === 'refresh_users' && ctx.from?.id === ADMIN_ID) {
@@ -114,47 +116,59 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// --- Forward Group Messages to Channel ---
-bot.on('message', async (ctx) => {
-  const chat = ctx.chat;
-
-  // Forward from group to channel
-  if (chat?.type === 'supergroup' && chat.username === 'testgroupp0') {
-    try {
-      await ctx.telegram.forwardMessage(
-        TARGET_CHANNEL_USERNAME,
-        chat.id,
-        ctx.message.message_id
-      );
-      console.log(`Forwarded message from group to channel.`);
-    } catch (err) {
-      console.error('Error forwarding message:', err);
-    }
-  }
-
-  // Track private users
-  if (chat?.type === 'private') {
-    const alreadyNotified = await saveToSheet(chat);
-    console.log(`Saved chat ID: ${chat.id} (${chat.type})`);
-
-    if (chat.id !== ADMIN_ID && !alreadyNotified) {
-      const user = ctx.from;
-      const name = user?.first_name || 'Unknown';
-      const username = user?.username ? `@${user.username}` : 'N/A';
-      await ctx.telegram.sendMessage(
-        ADMIN_ID,
-        `*New user interacted!*\n\n*Name:* ${name}\n*Username:* ${username}\n*Chat ID:* ${chat.id}\n*Type:* ${chat.type}`,
-        { parse_mode: 'Markdown' }
-      );
-    }
-  }
-});
-
 // --- New Member Welcome (Group) ---
 bot.on('new_chat_members', async (ctx) => {
   for (const member of ctx.message.new_chat_members) {
     if (member.username === ctx.botInfo.username) {
       await ctx.reply('Thanks for adding me! Type /help to get started.');
+    }
+  }
+});
+
+// --- Message Tracker for Private Chats ---
+bot.on('message', async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat?.id || !isPrivateChat(chat.type)) return;
+
+  const alreadyNotified = await saveToSheet(chat);
+  console.log(`Saved chat ID: ${chat.id} (${chat.type})`);
+
+  if (chat.id !== ADMIN_ID && !alreadyNotified) {
+    const user = ctx.from;
+    const name = user?.first_name || 'Unknown';
+    const username = user?.username ? `@${user.username}` : 'N/A';
+    await ctx.telegram.sendMessage(
+      ADMIN_ID,
+      `*New user interacted!*\n\n*Name:* ${name}\n*Username:* ${username}\n*Chat ID:* ${chat.id}\n*Type:* ${chat.type}`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+});
+
+// --- Forward Messages from @testgroupp0 to @AkashTest_Series ---
+bot.on('message', async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat?.id) return;
+
+  // Check if the message is from the specified group (@testgroupp0)
+  if (chat.type === 'supergroup' || chat.type === 'group') {
+    const chatHandle = ctx.chat.username?.toLowerCase();
+    if (chatHandle === GROUP_HANDLE.toLowerCase()) {
+      try {
+        // Forward the message to the channel
+        await ctx.telegram.forwardMessage(
+          CHANNEL_HANDLE,
+          chat.id,
+          ctx.message.message_id
+        );
+        console.log(`Forwarded message ${ctx.message.message_id} from ${GROUP_HANDLE} to ${CHANNEL_HANDLE}`);
+      } catch (err) {
+        console.error(`Error forwarding message to ${CHANNEL_HANDLE}:`, err);
+        // Notify admin if forwarding fails (e.g., bot not admin in channel)
+        if (ctx.from?.id === ADMIN_ID) {
+          await ctx.reply(`❌ Failed to forward message to ${CHANNEL_HANDLE}. Ensure the bot is an admin in the channel.`);
+        }
+      }
     }
   }
 });
