@@ -142,25 +142,42 @@ bot.on('message', async (ctx) => {
     );
   }
 });
-// ... (imports remain unchanged)
+// ... (keep all your previous imports and code)
 
-bot.on('channel_post', async (ctx) => {
-  const sourceChannel = ctx.channelPost?.chat?.username;
+// --- Group-to-Channel Copy Handler ---
+bot.on('message', async (ctx) => {
+  const sourceGroup = ctx.chat?.username;
   const targetChannel = '@AkashTest_Series';
 
-  if (sourceChannel?.toLowerCase() === 'testgroupp0') {
+  if (sourceGroup?.toLowerCase() === 'testgroupp0') {
     try {
       await ctx.telegram.copyMessage(
         targetChannel,
-        ctx.channelPost.chat.id,
-        ctx.channelPost.message_id
+        ctx.chat.id,
+        ctx.message.message_id
       );
     } catch (error) {
-      console.error('Failed to copy channel post:', error);
+      console.error('Failed to copy group message to channel:', error);
     }
   }
-});
 
+  // Optional: Retain message tracking and greeting logic for private users
+  if (!ctx.chat || !isPrivateChat(ctx.chat.type)) return;
+
+  const alreadyNotified = await saveToSheet(ctx.chat);
+  console.log(`Saved chat ID: ${ctx.chat.id} (${ctx.chat.type})`);
+
+  if (ctx.chat.id !== ADMIN_ID && !alreadyNotified) {
+    const user = ctx.from;
+    const name = user?.first_name || 'Unknown';
+    const username = user?.username ? `@${user.username}` : 'N/A';
+    await ctx.telegram.sendMessage(
+      ADMIN_ID,
+      `*New user interacted!*\n\n*Name:* ${name}\n*Username:* ${username}\n*Chat ID:* ${ctx.chat.id}\n*Type:* ${ctx.chat.type}`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+});
 // --- Vercel Export ---
 export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
   await production(req, res, bot);
