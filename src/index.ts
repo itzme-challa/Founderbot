@@ -13,8 +13,9 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const SOURCE_GROUP = '@FREESTUDYApp'; // Source group
-const DESTINATION_GROUP = '@neetpw01'; // Destination group
+// Replace with actual chat IDs obtained from logging ctx.chat.id
+const SOURCE_GROUP_ID = '-1002014965105'; // Replace with @FREESTUDYApp chat ID
+const DESTINATION_GROUP_ID = '-1001669808644'; // Replace with @neetpw01 chat ID
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
@@ -119,7 +120,7 @@ bot.on('text', async (ctx) => {
 // --- New Member Welcome (Group) ---
 bot.on('new_chat_members', async (ctx) => {
   for (const member of ctx.message.new_chat_members) {
-    if (member.username === ctx.botInfo.username) {
+    if (member.id === ctx.botInfo.id) {
       await ctx.reply('Thanks for adding me! Type /help to get started.');
     }
   }
@@ -148,18 +149,16 @@ bot.on('message', async (ctx) => {
 // --- Group Message Forwarder ---
 bot.on('message', async (ctx) => {
   try {
-    // Check if the message is from the source group
-    if (ctx.chat?.username === SOURCE_GROUP || ctx.chat?.id.toString() === '-100SOURCE_CHAT_ID') {
-      // Replace -100SOURCE_CHAT_ID with actual chat ID if known
-      const message = ctx.message;
+    if (!ctx.chat || !ctx.message) return;
 
-      // Forward the message to the destination group
+    // Check if the message is from the source group using chat ID
+    if (ctx.chat.id.toString() === SOURCE_GROUP_ID) {
       await ctx.telegram.forwardMessage(
-        DESTINATION_GROUP, // Can also use destination group's chat ID (e.g., '-100DESTINATION_CHAT_ID')
+        DESTINATION_GROUP_ID,
         ctx.chat.id,
-        message.message_id
+        ctx.message.message_id
       );
-      console.log(`Forwarded message ${message.message_id} from ${SOURCE_GROUP} to ${DESTINATION_GROUP}`);
+      console.log(`Forwarded message ${ctx.message.message_id} from chat ${ctx.chat.id} to ${DESTINATION_GROUP_ID}`);
     }
   } catch (err) {
     console.error('Error forwarding message:', err);
