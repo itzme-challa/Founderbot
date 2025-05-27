@@ -5,7 +5,7 @@ import { fetchChatIdsFromSheet } from './utils/chatStore';
 import { about } from './commands/about';
 import { help, handleHelpPagination } from './commands/help';
 import { pdf } from './commands/pdf';
-import { greeting} from './text/greeting';
+import { greeting } from './text/greeting';
 import { production, development } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { setupBroadcast } from './commands/broadcast';
@@ -13,12 +13,13 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
+const SOURCE_GROUP = '@FREESTUDYApp'; // Source group
+const DESTINATION_GROUP = '@neetpw01'; // Destination group
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
 
 const bot = new Telegraf(BOT_TOKEN);
-
 
 // --- Commands ---
 bot.command('about', about());
@@ -141,6 +142,27 @@ bot.on('message', async (ctx) => {
       `*New user interacted!*\n\n*Name:* ${name}\n*Username:* ${username}\n*Chat ID:* ${chat.id}\n*Type:* ${chat.type}`,
       { parse_mode: 'Markdown' }
     );
+  }
+});
+
+// --- Group Message Forwarder ---
+bot.on('message', async (ctx) => {
+  try {
+    // Check if the message is from the source group
+    if (ctx.chat?.username === SOURCE_GROUP || ctx.chat?.id.toString() === '-100SOURCE_CHAT_ID') {
+      // Replace -100SOURCE_CHAT_ID with actual chat ID if known
+      const message = ctx.message;
+
+      // Forward the message to the destination group
+      await ctx.telegram.forwardMessage(
+        DESTINATION_GROUP, // Can also use destination group's chat ID (e.g., '-100DESTINATION_CHAT_ID')
+        ctx.chat.id,
+        message.message_id
+      );
+      console.log(`Forwarded message ${message.message_id} from ${SOURCE_GROUP} to ${DESTINATION_GROUP}`);
+    }
+  } catch (err) {
+    console.error('Error forwarding message:', err);
   }
 });
 
