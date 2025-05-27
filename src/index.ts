@@ -13,9 +13,8 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-// Replace with actual chat IDs obtained from logging ctx.chat.id
-const SOURCE_GROUP_ID = '-1002014965105'; // Replace with @FREESTUDYApp chat ID
-const DESTINATION_GROUP_ID = '-1001669808644'; // Replace with @neetpw01 chat ID
+const SOURCE_GROUP_ID = '-1002014965105'; // @FREESTUDYApp
+const DESTINATION_GROUP_ID = '-1001669808644'; // @neetpw01
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
