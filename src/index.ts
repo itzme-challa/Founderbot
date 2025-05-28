@@ -5,7 +5,7 @@ import { fetchChatIdsFromSheet } from './utils/chatStore';
 import { about } from './commands/about';
 import { help, handleHelpPagination } from './commands/help';
 import { pdf } from './commands/pdf';
-import { greeting } from './text/greeting';
+import { greeting} from './text/greeting';
 import { production, development } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { setupBroadcast } from './commands/broadcast';
@@ -13,13 +13,12 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const SOURCE_GROUP_ID = '-1002014965105'; // @FREESTUDYApp
-const DESTINATION_GROUP_ID = '-1001669808644'; // @neetpw01
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
 
 const bot = new Telegraf(BOT_TOKEN);
+
 
 // --- Commands ---
 bot.command('about', about());
@@ -119,7 +118,7 @@ bot.on('text', async (ctx) => {
 // --- New Member Welcome (Group) ---
 bot.on('new_chat_members', async (ctx) => {
   for (const member of ctx.message.new_chat_members) {
-    if (member.id === ctx.botInfo.id) {
+    if (member.username === ctx.botInfo.username) {
       await ctx.reply('Thanks for adding me! Type /help to get started.');
     }
   }
@@ -142,25 +141,6 @@ bot.on('message', async (ctx) => {
       `*New user interacted!*\n\n*Name:* ${name}\n*Username:* ${username}\n*Chat ID:* ${chat.id}\n*Type:* ${chat.type}`,
       { parse_mode: 'Markdown' }
     );
-  }
-});
-
-// --- Group Message Forwarder ---
-bot.on('message', async (ctx) => {
-  try {
-    if (!ctx.chat || !ctx.message) return;
-
-    // Check if the message is from the source group using chat ID
-    if (ctx.chat.id.toString() === SOURCE_GROUP_ID) {
-      await ctx.telegram.forwardMessage(
-        DESTINATION_GROUP_ID,
-        ctx.chat.id,
-        ctx.message.message_id
-      );
-      console.log(`Forwarded message ${ctx.message.message_id} from chat ${ctx.chat.id} to ${DESTINATION_GROUP_ID}`);
-    }
-  } catch (err) {
-    console.error('Error forwarding message:', err);
   }
 });
 
