@@ -1,5 +1,5 @@
 import { Context, Telegraf } from 'telegraf';
-import { Update } from 'telegraf/typings/core/types/typegram';
+import { Update, Message } from 'telegraf/typings/core/types/typegram';
 
 // Helper function to check if the user is an admin
 async function isAdmin(ctx: Context): Promise<boolean> {
@@ -16,6 +16,16 @@ async function isAdmin(ctx: Context): Promise<boolean> {
   }
 }
 
+// Helper function to check if message has reply_to_message
+function hasReplyToMessage(message: Message | undefined): message is Message & { reply_to_message: Message } {
+  return !!(message && 'reply_to_message' in message && message.reply_to_message);
+}
+
+// Helper function to check if message has text
+function hasText(message: Message | undefined): message is Message.TextMessage {
+  return !!(message && 'text' in message);
+}
+
 // Command to kick a user from the group
 export function kick() {
   return async (ctx: Context) => {
@@ -23,14 +33,13 @@ export function kick() {
       return ctx.reply('You must be an admin to use this command.');
     }
 
-    const replyTo = ctx.message?.['reply_to_message'];
-    if (!replyTo || !replyTo.from) {
+    if (!hasReplyToMessage(ctx.message)) {
       return ctx.reply('Please reply to a user’s message to kick them.');
     }
 
     try {
-      await ctx.telegram.kickChatMember(ctx.chat!.id, replyTo.from.id);
-      await ctx.reply(`${replyTo.from.first_name} has been kicked from the group.`);
+      await ctx.telegram.kickChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id);
+      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been kicked from the group.`);
     } catch (error) {
       console.error('Error kicking user:', error);
       await ctx.reply('Failed to kick the user. Ensure I have the necessary permissions.');
@@ -45,14 +54,13 @@ export function ban() {
       return ctx.reply('You must be an admin to use this command.');
     }
 
-    const replyTo = ctx.message?.['reply_to_message'];
-    if (!replyTo || !replyTo.from) {
+    if (!hasReplyToMessage(ctx.message)) {
       return ctx.reply('Please reply to a user’s message to ban them.');
     }
 
     try {
-      await ctx.telegram.banChatMember(ctx.chat!.id, replyTo.from.id);
-      await ctx.reply(`${replyTo.from.first_name} has been banned from the group.`);
+      await ctx.telegram.banChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id);
+      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been banned from the group.`);
     } catch (error) {
       console.error('Error banning user:', error);
       await ctx.reply('Failed to ban the user. Ensure I have the necessary permissions.');
@@ -67,16 +75,15 @@ export function mute() {
       return ctx.reply('You must be an admin to use this command.');
     }
 
-    const replyTo = ctx.message?.['reply_to_message'];
-    if (!replyTo || !replyTo.from) {
+    if (!hasReplyToMessage(ctx.message)) {
       return ctx.reply('Please reply to a user’s message to mute them.');
     }
 
     try {
-      await ctx.telegram.restrictChatMember(ctx.chat!.id, replyTo.from.id, {
+      await ctx.telegram.restrictChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id, {
         permissions: { can_send_messages: false },
       });
-      await ctx.reply(`${replyTo.from.first_name} has been muted.`);
+      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been muted.`);
     } catch (error) {
       console.error('Error muting user:', error);
       await ctx.reply('Failed to mute the user. Ensure I have the necessary permissions.');
@@ -91,22 +98,26 @@ export function unmute() {
       return ctx.reply('You must be an admin to use this command.');
     }
 
-    const replyTo = ctx.message?.['reply_to_message'];
-    if (!replyTo || !replyTo.from) {
+    if (!hasReplyToMessage(ctx.message)) {
       return ctx.reply('Please reply to a user’s message to unmute them.');
     }
 
     try {
-      await ctx.telegram.restrictChatMember(ctx.chat!.id, replyTo.from.id, {
+      await ctx.telegram.restrictChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id, {
         permissions: {
           can_send_messages: true,
-          can_send_media_messages: true,
+          can_send_audios: true,
+          can_send_documents: true,
+          can_send_photos: true,
+          can_send_videos: true,
+          can_send_video_notes: true,
+          can_send_voice_notes: true,
           can_send_polls: true,
           can_send_other_messages: true,
           can_add_web_page_previews: true,
         },
       });
-      await ctx.reply(`${replyTo.from.first_name} has been unmuted.`);
+      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been unmuted.`);
     } catch (error) {
       console.error('Error unmuting user:', error);
       await ctx.reply('Failed to unmute the user. Ensure I have the necessary permissions.');
@@ -121,19 +132,18 @@ export function promote() {
       return ctx.reply('You must be an admin to use this command.');
     }
 
-    const replyTo = ctx.message?.['reply_to_message'];
-    if (!replyTo || !replyTo.from) {
+    if (!hasReplyToMessage(ctx.message)) {
       return ctx.reply('Please reply to a user’s message to promote them.');
     }
 
     try {
-      await ctx.telegram.promoteChatMember(ctx.chat!.id, replyTo.from.id, {
+      await ctx.telegram.promoteChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id, {
         can_manage_chat: true,
         can_delete_messages: true,
         can_restrict_members: true,
         can_promote_members: false, // Prevent promoting others to avoid escalation
       });
-      await ctx.reply(`${replyTo.from.first_name} has been promoted to admin.`);
+      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been promoted to admin.`);
     } catch (error) {
       console.error('Error promoting user:', error);
       await ctx.reply('Failed to promote the user. Ensure I have the necessary permissions.');
@@ -148,7 +158,11 @@ export function setDescription() {
       return ctx.reply('You must be an admin to use this command.');
     }
 
-    const text = ctx.message?.['text']?.split(' ').slice(1).join(' ');
+    if (!hasText(ctx.message)) {
+      return ctx.reply('Please provide a description. Usage: /setdescription <text>');
+    }
+
+    const text = ctx.message.text.split(' ').slice(1).join(' ');
     if (!text) {
       return ctx.reply('Please provide a description. Usage: /setdescription <text>');
     }
