@@ -35,12 +35,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const paymentStatus = response.data.order_status;
 
     if (paymentStatus === 'PAID') {
-      // Send success message to user
       const userId = parseInt(customerId, 10);
       const user = await bot.telegram.getChat(userId).catch(() => null);
       const name = user && 'first_name' in user ? user.first_name : 'User';
       const username = user && 'username' in user ? `@${user.username}` : 'N/A';
 
+      // Send success message to user
       await bot.telegram.sendMessage(
         userId,
         `*Payment Successful!*\n\n` +
@@ -69,8 +69,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } else {
       return res.status(400).json({ success: false, error: 'Payment not completed' });
     }
-  } catch (error) {
-    console.error('Webhook error:', error);
+  } catch (error: any) {
+    console.error('Webhook error:', error?.response?.data || error.message);
     return res.status(500).json({ success: false, error: 'Failed to process webhook' });
   }
 }
