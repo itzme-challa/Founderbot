@@ -1,10 +1,10 @@
 {
-  "name": "telegram-bot-vercel-boilerplate",
+  "name": "Eduhub-KMR",
   "version": "1.1.0",
-  "description": "Telegram Bot Vercel Boilerplate",
+  "description": "Eduhub-KMR is a Telegram study bot designed to assist students with educational resources, study tips, and interactive learning tools for effective preparation, especially for competitive exams like NEET.",
   "main": "src/index.ts",
-  "author": "Mark Pavlov (https://github.com/sollidy)",
-  "homepage": "https://github.com/sollidy/telegram-bot-vercel-boilerplate",
+  "author": "itzfew (t.me/itzfew)",
+  "homepage": "https://t.me/neetpw01",
   "dependencies": {
     "@vercel/node": "^5.1.16",
     "dotenv-cli": "^8.0.0",
