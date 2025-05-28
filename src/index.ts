@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+ import { Telegraf } from 'telegraf';
 import { about } from './commands/about';
 import { greeting } from './text/greeting';
 import { development, production } from './core';
