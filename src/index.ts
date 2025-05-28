@@ -13,8 +13,8 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const SOURCE_CHANNEL = '@pw_yakeen2_neet2026'; // Source channel
-const TARGET_CHANNEL = '2668211378'; // Target private channel ID
+const SOURCE_CHANNEL = '@pw_yakeen2_neet2026';
+const TARGET_CHANNEL = '2668211378';
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
@@ -157,14 +157,16 @@ bot.on('channel_post', async (ctx) => {
       ctx.channelPost.message_id
     );
     console.log(`Forwarded message ${ctx.channelPost.message_id} from ${chat.username} to ${TARGET_CHANNEL}`);
-  } catch (err) {
+  } catch (err: any) {
     console.error(`Error forwarding message from ${chat.username} to ${TARGET_CHANNEL}:`, err);
-    if (ctx.from?.id === ADMIN_ID) {
+    try {
       await ctx.telegram.sendMessage(
         ADMIN_ID,
-        `❌ Failed to forward message from ${chat.username} to private channel: ${err.message}`,
+        `❌ Failed to forward message from ${chat.username} to private channel: ${(err as Error).message || 'Unknown error'}`,
         { parse_mode: 'Markdown' }
       );
+    } catch (adminErr) {
+      console.error('Error notifying admin:', adminErr);
     }
   }
 });
