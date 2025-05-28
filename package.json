@@ -7,7 +7,7 @@
   "homepage": "https://github.com/itzfew/eduhub-bot",
   "dependencies": {
     "@vercel/node": "^3.2.24",
-    "axios": "^1.7.7", // Added axios
+    "axios": "^1.7.7",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
