@@ -1,6 +1,7 @@
+import type { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 
-export default async function handler(req, res) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method Not Allowed' });
   }
@@ -28,7 +29,7 @@ export default async function handler(req, res) {
         },
         order_meta: {
           return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/success?order_id={order_id}&product_id=${productId}`,
-          notify_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/webhook`, // Optional
+          notify_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/webhook`,
         },
         order_note: telegramLink,
       },
@@ -48,9 +49,9 @@ export default async function handler(req, res) {
       success: true,
       paymentSessionId,
       orderId,
-      telegramLink, // Include for success page
+      telegramLink,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Cashfree order creation failed:', error?.response?.data || error.message);
     return res.status(500).json({
       success: false,
