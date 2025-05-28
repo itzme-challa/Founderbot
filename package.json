@@ -7,7 +7,6 @@
   "homepage": "https://t.me/neetpw01",
   "dependencies": {
     "@vercel/node": "^5.1.16",
-    "axios": "^1.7.7",
     "dotenv-cli": "^8.0.0",
     "telegraf": "^4.16.3"
   },
