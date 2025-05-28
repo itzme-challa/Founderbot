@@ -13,8 +13,8 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const GROUP_HANDLE = '@testgroupp0';
-const CHANNEL_HANDLE = '@AkashTest_Series';
+const SOURCE_CHANNEL = '@AkashAiats2026'; // Source channel
+const TARGET_CHANNEL = '@AkashTest_Series'; // Target channel where bot is admin
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
@@ -145,31 +145,26 @@ bot.on('message', async (ctx) => {
   }
 });
 
-// --- Forward Messages from @testgroupp0 to @AkashTest_Series ---
-bot.on('message', async (ctx) => {
+// --- Channel Message Forwarding ---
+bot.on('channel_post', async (ctx) => {
   const chat = ctx.chat;
-  if (!chat?.id) return;
+  if (!chat || chat.username !== SOURCE_CHANNEL) return;
 
-  // Check if the message is from the specified group (@testgroupp0)
-  if (chat.type === 'supergroup' || chat.type === 'group') {
-    const chatHandle = ctx.chat.username?.toLowerCase();
-    if (chatHandle === GROUP_HANDLE.toLowerCase()) {
-      try {
-        // Forward the message to the channel
-        await ctx.telegram.forwardMessage(
-          CHANNEL_HANDLE,
-          chat.id,
-          ctx.message.message_id
-        );
-        console.log(`Forwarded message ${ctx.message.message_id} from ${GROUP_HANDLE} to ${CHANNEL_HANDLE}`);
-      } catch (err) {
-        console.error(`Error forwarding message to ${CHANNEL_HANDLE}:`, err);
-        // Notify admin if forwarding fails (e.g., bot not admin in channel)
-        if (ctx.from?.id === ADMIN_ID) {
-          await ctx.reply(`❌ Failed to forward message to ${CHANNEL_HANDLE}. Ensure the bot is an admin in the channel.`);
-        }
-      }
-    }
+  const message = ctx.channelPost;
+  if (!message) return;
+
+  try {
+    await ctx.telegram.forwardMessage(TARGET_CHANNEL, chat.id, message.message_id);
+    console.log(`Forwarded message ${message.message_id} from ${SOURCE_CHANNEL} to ${TARGET_CHANNEL}`);
+  } catch (err: unknown) {
+    console.error(`Error forwarding message from ${SOURCE_CHANNEL} to ${TARGET_CHANNEL}:`, err);
+    // Safely handle the error message
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    await ctx.telegram.sendMessage(
+      ADMIN_ID,
+      `❌ Failed to forward message from ${SOURCE_CHANNEL} to ${TARGET_CHANNEL}.\nError: ${errorMessage}`,
+      { parse_mode: 'Markdown' }
+    );
   }
 });
 
