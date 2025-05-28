@@ -1,4 +1,4 @@
-import { Telegraf, Context } from 'telegraf';
+import { Telegraf, Context, NarrowedContext } from 'telegraf';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
 import { saveToSheet } from './utils/saveToSheet';
@@ -10,6 +10,7 @@ import { greeting } from './text/greeting';
 import { production, development } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { setupBroadcast } from './commands/broadcast';
+import { Message } from 'telegraf/typings/core/types/typegram'; // Import Message type
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
@@ -24,20 +25,20 @@ console.log(`Running bot in ${ENVIRONMENT} mode`);
 const bot = new Telegraf(BOT_TOKEN);
 
 // --- /support Command ---
-bot.command('support', async (ctx: Context) => {
+bot.command('support', async (ctx: NarrowedContext<Context, { message: Message.TextMessage }>) => {
   if (!ctx.chat || !isPrivateChat(ctx.chat.type)) {
     return ctx.reply('Please use this command in a private chat.');
   }
 
-  const user = ctx.from;
-  const args = ctx.message.text.split(' ').slice(1);
+  // Since we use NarrowedContext with TextMessage, ctx.message is guaranteed to be a TextMessage
+  const args = ctx.message.text.split(' ').slice(1); // Safe to access text
   const amount = args[0] === '20' ? 20 : 10;
   const productId = `support_${amount}`;
   const productName = `Support Donation (${amount} INR)`;
   const telegramLink = 'https://t.me/AkashTest_Series';
-  const customerName = user?.first_name || 'Unknown';
-  const customerUsername = user?.username ? `@${user.username}` : 'N/A';
-  const customerId = user?.id.toString();
+  const customerName = ctx.from?.first_name || 'Unknown';
+  const customerUsername = ctx.from?.username ? `@${ctx.from.username}` : 'N/A';
+  const customerId = ctx.from?.id.toString();
   const customerEmail = `${customerId}@example.com`;
   const customerPhone = '9999999999';
 
