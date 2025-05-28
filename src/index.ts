@@ -13,7 +13,7 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const SOURCE_CHANNEL = '@AkashAiats2026'; // Source channel
+const SOURCE_CHANNEL = '@pw_yakeen2_neet2026'; // Source channel
 const TARGET_CHANNEL = '@AkashTest_Series'; // Target channel where bot is admin
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
