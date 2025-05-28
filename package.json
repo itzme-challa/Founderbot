@@ -1,32 +1,16 @@
 {
-  "name": "Eduhub",
-  "version": "1.1.0",
-  "description": "Telegram Bot EduHub",
-  "main": "src/index.ts",
-  "author": "itzfew (https://t.me/itzfew)",
-  "homepage": "https://github.com/itzfew/eduhub-bot",
-  "dependencies": {
-    "@vercel/node": "^3.2.24",
-    "axios": "^1.7.7",
-    "telegraf": "^4.16.3"
-  },
-  "devDependencies": {
-    "@types/debug": "^4.1.12",
-    "@types/node": "^22.8.6",
-    "@vercel/ncc": "^0.38.2",
-    "debug": "^4.3.7",
-    "dotenv-cli": "^7.4.2",
-    "nodemon": "^3.1.7",
-    "prettier": "^3.3.3",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
-  },
+  "name": "telegram-bot",
+  "version": "1.0.0",
+  "description": "A simple Telegram bot for Vercel deployment",
+  "main": "src/index.js",
   "scripts": {
-    "dev": "DEBUG=bot* dotenv -- nodemon -e ts -x ts-node src/index.ts",
-    "devWindows": "@powershell -Command $env:DEBUG='bot*';dotenv -- -- nodemon -e ts -x ts-node src/index.ts",
-    "build": "ncc build src/index.ts -o public -m",
-    "vercel-build": "yarn build",
-    "prettier": "prettier --write 'src/**/*.ts'",
-    "lint": "tsc --noemit"
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
