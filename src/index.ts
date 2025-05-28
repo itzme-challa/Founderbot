@@ -13,8 +13,8 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const SOURCE_CHANNEL = '@pw_yakeen2_neet2026';
-const TARGET_CHANNEL = '2668211378';
+const SOURCE_CHANNEL = '@pw_yakeen2_neet2026'; // Source channel
+const TARGET_CHANNEL = '@AkashTest_Series'; // Target channel where bot is admin
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
@@ -145,29 +145,25 @@ bot.on('message', async (ctx) => {
   }
 });
 
-// --- Channel Post Forwarding ---
+// --- Channel Message Forwarding ---
 bot.on('channel_post', async (ctx) => {
   const chat = ctx.chat;
   if (!chat || chat.username !== SOURCE_CHANNEL) return;
 
+  const message = ctx.channelPost;
+  if (!message) return;
+
   try {
-    await ctx.telegram.forwardMessage(
-      TARGET_CHANNEL,
-      chat.id,
-      ctx.channelPost.message_id
+    await ctx.telegram.forwardMessage(TARGET_CHANNEL, chat.id, message.message_id);
+    console.log(`Forwarded message ${message.message_id} from ${SOURCE_CHANNEL} to ${TARGET_CHANNEL}`);
+  } catch (err) {
+    console.error(`Error forwarding message from ${SOURCE_CHANNEL} to ${TARGET_CHANNEL}:`, err);
+    // Optionally notify the admin about the error
+    await ctx.telegram.sendMessage(
+      ADMIN_ID,
+      `❌ Failed to forward message from ${SOURCE_CHANNEL} to ${TARGET_CHANNEL}.\nError: ${err.message}`,
+      { parse_mode: 'Markdown' }
     );
-    console.log(`Forwarded message ${ctx.channelPost.message_id} from ${chat.username} to ${TARGET_CHANNEL}`);
-  } catch (err: any) {
-    console.error(`Error forwarding message from ${chat.username} to ${TARGET_CHANNEL}:`, err);
-    try {
-      await ctx.telegram.sendMessage(
-        ADMIN_ID,
-        `❌ Failed to forward message from ${chat.username} to private channel: ${(err as Error).message || 'Unknown error'}`,
-        { parse_mode: 'Markdown' }
-      );
-    } catch (adminErr) {
-      console.error('Error notifying admin:', adminErr);
-    }
   }
 });
 
