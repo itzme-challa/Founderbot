@@ -1,4 +1,30 @@
-bot.command('support', async (ctx) => {
+import { Telegraf, Context } from 'telegraf';
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import axios from 'axios';
+import { saveToSheet } from './utils/saveToSheet';
+import { fetchChatIdsFromSheet } from './utils/chatStore';
+import { about } from './commands/about';
+import { help, handleHelpPagination } from './commands/help';
+import { pdf } from './commands/pdf';
+import { greeting } from './text/greeting';
+import { production, development } from './core';
+import { isPrivateChat } from './utils/groupSettings';
+import { setupBroadcast } from './commands/broadcast';
+
+const BOT_TOKEN = process.env.BOT_TOKEN || '';
+const ENVIRONMENT = process.env.NODE_ENV || '';
+const ADMIN_ID = 6930703214;
+const SOURCE_CHANNEL = '@pw_yakeen2_neet2026';
+const TARGET_CHANNEL = '@AkashTest_Series';
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://founderbot.vercel.app/';
+
+if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
+console.log(`Running bot in ${ENVIRONMENT} mode`);
+
+const bot = new Telegraf(BOT_TOKEN);
+
+// --- /support Command ---
+bot.command('support', async (ctx: Context) => {
   if (!ctx.chat || !isPrivateChat(ctx.chat.type)) {
     return ctx.reply('Please use this command in a private chat.');
   }
@@ -51,3 +77,15 @@ bot.command('support', async (ctx) => {
     await ctx.reply('❌ An error occurred while processing your request. Please try again.');
   }
 });
+
+// --- Other Commands and Handlers ---
+// (Keep the rest of the file as is, ensuring all imports are at the top)
+
+// --- Vercel Export ---
+export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
+  await production(req, res, bot);
+};
+
+if (ENVIRONMENT !== 'production') {
+  development(bot);
+}
