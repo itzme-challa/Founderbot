@@ -1,19 +1,11 @@
 {
   "version": 2,
-  "builds": [
+  "public": true,
+  "rewrites": [
     {
-      "src": "api/**/*.ts",
-      "use": "@vercel/node"
+      "source": "/(.*)",
+      "destination": "api/index.ts"
     }
   ],
-  "routes": [
-    {
-      "src": "/api/webhook",
-      "dest": "/api/webhook.ts"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/index.ts"
-    }
-  ]
+  "redirects": [{ "source": "/", "destination": "/api", "permanent": false }]
 }
