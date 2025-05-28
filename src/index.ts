@@ -14,7 +14,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
 const SOURCE_CHANNEL = '@pw_yakeen2_neet2026'; // Source channel
-const TARGET_CHANNEL = '@AkashTest_Series'; // Target channel where bot is admin
+const TARGET_CHANNEL = '-1002668211378'; // Private channel ID
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
