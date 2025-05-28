@@ -1,33 +1,32 @@
-import { Telegraf, Context } from 'telegraf';
-import { ChatMember } from 'telegraf/typings/core/types/typegram';
+import { Telegraf, Context, NarrowedContext, Types } from 'telegraf';
+import { ChatMember, Message } from 'telegraf/typings/core/types/typegram';
 
 function extractTarget(ctx: Context): { userId?: number; name?: string } | null {
-  const reply = ctx.message?.reply_to_message;
-  const entities = ctx.message?.entities;
+  if ('text' in ctx.message && 'reply_to_message' in ctx.message) {
+    const reply = ctx.message.reply_to_message;
+    const entities = ctx.message.entities;
 
-  if (reply) {
-    return {
-      userId: reply.from.id,
-      name: reply.from.username ? `@${reply.from.username}` : `${reply.from.first_name}`
-    };
-  }
+    if (reply) {
+      return {
+        userId: reply.from.id,
+        name: reply.from.username ? `@${reply.from.username}` : `${reply.from.first_name}`,
+      };
+    }
 
-  const mention = ctx.message?.text?.split(' ')[1];
-  if (mention?.startsWith('@')) {
-    // Placeholder for extracting user ID from @mention if needed
-    return {
-      name: mention
-    };
+    const mention = ctx.message.text.split(' ')[1];
+    if (mention?.startsWith('@')) {
+      return {
+        name: mention,
+      };
+    }
   }
 
   return null;
 }
 
 export function registerGroupCommands(bot: Telegraf<Context>) {
-  // Generic response for missing target
   const missingTargetMsg = "❗ I don't know who you're talking about, you're going to need to specify a user (by replying or mentioning).";
 
-  // /ban command
   bot.command('ban', async (ctx) => {
     if (ctx.chat.type === 'private') return;
 
@@ -42,7 +41,6 @@ export function registerGroupCommands(bot: Telegraf<Context>) {
     }
   });
 
-  // /unban command
   bot.command('unban', async (ctx) => {
     if (ctx.chat.type === 'private') return;
 
@@ -57,7 +55,6 @@ export function registerGroupCommands(bot: Telegraf<Context>) {
     }
   });
 
-  // /mute command
   bot.command('mute', async (ctx) => {
     if (ctx.chat.type === 'private') return;
 
@@ -68,10 +65,16 @@ export function registerGroupCommands(bot: Telegraf<Context>) {
       await ctx.restrictChatMember(target.userId, {
         permissions: {
           can_send_messages: false,
-          can_send_media_messages: false,
+          can_send_audios: false,
+          can_send_documents: false,
+          can_send_photos: false,
+          can_send_videos: false,
+          can_send_video_notes: false,
+          can_send_voice_notes: false,
+          can_send_polls: false,
           can_send_other_messages: false,
           can_add_web_page_previews: false,
-        }
+        },
       });
       ctx.reply(`🔇 Muted ${target.name || 'user'}.`);
     } catch (err) {
@@ -79,7 +82,6 @@ export function registerGroupCommands(bot: Telegraf<Context>) {
     }
   });
 
-  // /unmute command
   bot.command('unmute', async (ctx) => {
     if (ctx.chat.type === 'private') return;
 
@@ -90,10 +92,16 @@ export function registerGroupCommands(bot: Telegraf<Context>) {
       await ctx.restrictChatMember(target.userId, {
         permissions: {
           can_send_messages: true,
-          can_send_media_messages: true,
+          can_send_audios: true,
+          can_send_documents: true,
+          can_send_photos: true,
+          can_send_videos: true,
+          can_send_video_notes: true,
+          can_send_voice_notes: true,
+          can_send_polls: true,
           can_send_other_messages: true,
           can_add_web_page_previews: true,
-        }
+        },
       });
       ctx.reply(`🔊 Unmuted ${target.name || 'user'}.`);
     } catch (err) {
@@ -101,7 +109,6 @@ export function registerGroupCommands(bot: Telegraf<Context>) {
     }
   });
 
-  // /kick command
   bot.command('kick', async (ctx) => {
     if (ctx.chat.type === 'private') return;
 
@@ -116,7 +123,6 @@ export function registerGroupCommands(bot: Telegraf<Context>) {
     }
   });
 
-  // /info command
   bot.command('info', async (ctx) => {
     if (ctx.chat.type === 'private') return;
 
@@ -134,21 +140,23 @@ export function registerGroupCommands(bot: Telegraf<Context>) {
     }
   });
 
-  // /link or link command
   bot.hears(/^(\/)?link$/, async (ctx) => {
     if (ctx.chat.type === 'private') return;
-    const link = `https://t.me/${ctx.chat.username || `c/${String(ctx.chat.id).slice(4)}`}`;
+
+    const chat = ctx.chat as Types.Chat.SupergroupChat | Types.Chat.GroupChat;
+    const link = chat.username
+      ? `https://t.me/${chat.username}`
+      : `https://t.me/c/${String(ctx.chat.id).slice(4)}`;
     ctx.reply(`🔗 Group link:\n${link}`);
   });
 
-  // /date or today's date
   bot.hears(/^(\/)?(date|today('|’)s date)$/i, async (ctx) => {
     const now = new Date();
     const formatted = now.toLocaleDateString('en-IN', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
-      day: 'numeric'
+      day: 'numeric',
     });
     ctx.reply(`📅 Today's date is: ${formatted}`);
   });
