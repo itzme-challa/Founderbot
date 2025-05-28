@@ -1,31 +1,21 @@
 import { Context } from 'telegraf';
 import createDebug from 'debug';
 
-const debug = createDebug('bot:greeting');
+const debug = createDebug('bot:greeting_text');
 
-// Greeting handler (only for private chats)
+const replyToMessage = (ctx: Context, messageId: number, string: string) =>
+  ctx.reply(string, {
+    reply_parameters: { message_id: messageId },
+  });
+
 const greeting = () => async (ctx: Context) => {
-  try {
-    debug('Triggered "greeting" handler');
-    const message = ctx.message;
-    const chat = ctx.chat;
-    const user = ctx.from;
+  debug('Triggered "greeting" text command');
 
-    if (!chat || chat.type !== 'private' || !message || !user || !('text' in message)) return;
+  const messageId = ctx.message?.message_id;
+  const userName = `${ctx.message?.from.first_name} ${ctx.message?.from.last_name}`;
 
-    const text = message.text.trim().toLowerCase();
-    const greetings = ['hi', 'hello', 'hey', 'hii', 'heyy', 'hola', 'start', '/start'];
-
-    if (greetings.includes(text)) {
-      await ctx.reply(
-        `Welcome ${user.first_name}! You have full access.\n\nUse /help or /study to explore available commands and get started with your NEET Preparation!`,
-        {
-          parse_mode: 'Markdown',
-        }
-      );
-    }
-  } catch (err) {
-    console.error('Greeting logic error:', err);
+  if (messageId) {
+    await replyToMessage(ctx, messageId, `Hello, ${userName}!`);
   }
 };
 
