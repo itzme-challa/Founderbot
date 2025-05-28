@@ -1,188 +1,155 @@
-import { Context, Telegraf } from 'telegraf';
-import { Update, Message } from 'telegraf/typings/core/types/typegram';
+import { Telegraf, Context } from 'telegraf';
+import { ChatMember } from 'telegraf/typings/core/types/typegram';
 
-// Helper function to check if the user is an admin
-async function isAdmin(ctx: Context): Promise<boolean> {
-  const chat = ctx.chat;
-  const user = ctx.from;
-  if (!chat || !user) return false;
+function extractTarget(ctx: Context): { userId?: number; name?: string } | null {
+  const reply = ctx.message?.reply_to_message;
+  const entities = ctx.message?.entities;
 
-  try {
-    const member = await ctx.telegram.getChatMember(chat.id, user.id);
-    return ['administrator', 'creator'].includes(member.status);
-  } catch (error) {
-    console.error('Error checking admin status:', error);
-    return false;
+  if (reply) {
+    return {
+      userId: reply.from.id,
+      name: reply.from.username ? `@${reply.from.username}` : `${reply.from.first_name}`
+    };
   }
+
+  const mention = ctx.message?.text?.split(' ')[1];
+  if (mention?.startsWith('@')) {
+    // Placeholder for extracting user ID from @mention if needed
+    return {
+      name: mention
+    };
+  }
+
+  return null;
 }
 
-// Helper function to check if message has reply_to_message
-function hasReplyToMessage(message: Message | undefined): message is Message & { reply_to_message: Message } {
-  return !!(message && 'reply_to_message' in message && message.reply_to_message);
-}
+export function registerGroupCommands(bot: Telegraf<Context>) {
+  // Generic response for missing target
+  const missingTargetMsg = "❗ I don't know who you're talking about, you're going to need to specify a user (by replying or mentioning).";
 
-// Helper function to check if message has text
-function hasText(message: Message | undefined): message is Message.TextMessage {
-  return !!(message && 'text' in message);
-}
+  // /ban command
+  bot.command('ban', async (ctx) => {
+    if (ctx.chat.type === 'private') return;
 
-// Command to kick a user from the group
-export function kick() {
-  return async (ctx: Context) => {
-    if (!(await isAdmin(ctx))) {
-      return ctx.reply('You must be an admin to use this command.');
-    }
-
-    if (!hasReplyToMessage(ctx.message)) {
-      return ctx.reply('Please reply to a user’s message to kick them.');
-    }
+    const target = extractTarget(ctx);
+    if (!target?.userId) return ctx.reply(missingTargetMsg);
 
     try {
-      await ctx.telegram.kickChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id);
-      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been kicked from the group.`);
-    } catch (error) {
-      console.error('Error kicking user:', error);
-      await ctx.reply('Failed to kick the user. Ensure I have the necessary permissions.');
+      await ctx.banChatMember(target.userId);
+      ctx.reply(`🚫 Banned ${target.name || 'user'} from the group.`);
+    } catch (err) {
+      ctx.reply('❌ Failed to ban the user. Make sure I have the necessary rights.');
     }
-  };
-}
+  });
 
-// Command to ban a user from the group
-export function ban() {
-  return async (ctx: Context) => {
-    if (!(await isAdmin(ctx))) {
-      return ctx.reply('You must be an admin to use this command.');
-    }
+  // /unban command
+  bot.command('unban', async (ctx) => {
+    if (ctx.chat.type === 'private') return;
 
-    if (!hasReplyToMessage(ctx.message)) {
-      return ctx.reply('Please reply to a user’s message to ban them.');
-    }
+    const target = extractTarget(ctx);
+    if (!target?.userId) return ctx.reply(missingTargetMsg);
 
     try {
-      await ctx.telegram.banChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id);
-      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been banned from the group.`);
-    } catch (error) {
-      console.error('Error banning user:', error);
-      await ctx.reply('Failed to ban the user. Ensure I have the necessary permissions.');
+      await ctx.unbanChatMember(target.userId);
+      ctx.reply(`✅ Unbanned ${target.name || 'user'}.`);
+    } catch (err) {
+      ctx.reply('❌ Failed to unban the user.');
     }
-  };
-}
+  });
 
-// Command to mute a user (restrict sending messages)
-export function mute() {
-  return async (ctx: Context) => {
-    if (!(await isAdmin(ctx))) {
-      return ctx.reply('You must be an admin to use this command.');
-    }
+  // /mute command
+  bot.command('mute', async (ctx) => {
+    if (ctx.chat.type === 'private') return;
 
-    if (!hasReplyToMessage(ctx.message)) {
-      return ctx.reply('Please reply to a user’s message to mute them.');
-    }
+    const target = extractTarget(ctx);
+    if (!target?.userId) return ctx.reply(missingTargetMsg);
 
     try {
-      await ctx.telegram.restrictChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id, {
-        permissions: { can_send_messages: false },
+      await ctx.restrictChatMember(target.userId, {
+        permissions: {
+          can_send_messages: false,
+          can_send_media_messages: false,
+          can_send_other_messages: false,
+          can_add_web_page_previews: false,
+        }
       });
-      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been muted.`);
-    } catch (error) {
-      console.error('Error muting user:', error);
-      await ctx.reply('Failed to mute the user. Ensure I have the necessary permissions.');
+      ctx.reply(`🔇 Muted ${target.name || 'user'}.`);
+    } catch (err) {
+      ctx.reply('❌ Failed to mute the user.');
     }
-  };
-}
+  });
 
-// Command to unmute a user
-export function unmute() {
-  return async (ctx: Context) => {
-    if (!(await isAdmin(ctx))) {
-      return ctx.reply('You must be an admin to use this command.');
-    }
+  // /unmute command
+  bot.command('unmute', async (ctx) => {
+    if (ctx.chat.type === 'private') return;
 
-    if (!hasReplyToMessage(ctx.message)) {
-      return ctx.reply('Please reply to a user’s message to unmute them.');
-    }
+    const target = extractTarget(ctx);
+    if (!target?.userId) return ctx.reply(missingTargetMsg);
 
     try {
-      await ctx.telegram.restrictChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id, {
+      await ctx.restrictChatMember(target.userId, {
         permissions: {
           can_send_messages: true,
-          can_send_audios: true,
-          can_send_documents: true,
-          can_send_photos: true,
-          can_send_videos: true,
-          can_send_video_notes: true,
-          can_send_voice_notes: true,
-          can_send_polls: true,
+          can_send_media_messages: true,
           can_send_other_messages: true,
           can_add_web_page_previews: true,
-        },
+        }
       });
-      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been unmuted.`);
-    } catch (error) {
-      console.error('Error unmuting user:', error);
-      await ctx.reply('Failed to unmute the user. Ensure I have the necessary permissions.');
+      ctx.reply(`🔊 Unmuted ${target.name || 'user'}.`);
+    } catch (err) {
+      ctx.reply('❌ Failed to unmute the user.');
     }
-  };
-}
+  });
 
-// Command to promote a user to admin
-export function promote() {
-  return async (ctx: Context) => {
-    if (!(await isAdmin(ctx))) {
-      return ctx.reply('You must be an admin to use this command.');
-    }
+  // /kick command
+  bot.command('kick', async (ctx) => {
+    if (ctx.chat.type === 'private') return;
 
-    if (!hasReplyToMessage(ctx.message)) {
-      return ctx.reply('Please reply to a user’s message to promote them.');
-    }
+    const target = extractTarget(ctx);
+    if (!target?.userId) return ctx.reply(missingTargetMsg);
 
     try {
-      await ctx.telegram.promoteChatMember(ctx.chat!.id, ctx.message.reply_to_message.from!.id, {
-        can_manage_chat: true,
-        can_delete_messages: true,
-        can_restrict_members: true,
-        can_promote_members: false, // Prevent promoting others to avoid escalation
-      });
-      await ctx.reply(`${ctx.message.reply_to_message.from!.first_name} has been promoted to admin.`);
-    } catch (error) {
-      console.error('Error promoting user:', error);
-      await ctx.reply('Failed to promote the user. Ensure I have the necessary permissions.');
+      await ctx.kickChatMember(target.userId);
+      ctx.reply(`👢 Kicked ${target.name || 'user'} from the group.`);
+    } catch (err) {
+      ctx.reply('❌ Failed to kick the user.');
     }
-  };
-}
+  });
 
-// Command to set group description
-export function setDescription() {
-  return async (ctx: Context) => {
-    if (!(await isAdmin(ctx))) {
-      return ctx.reply('You must be an admin to use this command.');
-    }
+  // /info command
+  bot.command('info', async (ctx) => {
+    if (ctx.chat.type === 'private') return;
 
-    if (!hasText(ctx.message)) {
-      return ctx.reply('Please provide a description. Usage: /setdescription <text>');
-    }
-
-    const text = ctx.message.text.split(' ').slice(1).join(' ');
-    if (!text) {
-      return ctx.reply('Please provide a description. Usage: /setdescription <text>');
-    }
+    const target = extractTarget(ctx);
+    if (!target?.userId) return ctx.reply(missingTargetMsg);
 
     try {
-      await ctx.telegram.setChatDescription(ctx.chat!.id, text);
-      await ctx.reply('Group description updated.');
-    } catch (error) {
-      console.error('Error setting description:', error);
-      await ctx.reply('Failed to set group description. Ensure I have the necessary permissions.');
+      const member: ChatMember = await ctx.getChatMember(target.userId);
+      ctx.reply(`ℹ️ Info for ${target.name || 'user'}:
+- Status: ${member.status}
+- Is Admin: ${['administrator', 'creator'].includes(member.status) ? 'Yes' : 'No'}
+- User ID: ${target.userId}`);
+    } catch (err) {
+      ctx.reply('❌ Could not fetch user info.');
     }
-  };
-}
+  });
 
-// Register all group admin commands
-export function registerGroupCommands(bot: Telegraf<Context<Update>>) {
-  bot.command('kick', kick());
-  bot.command('ban', ban());
-  bot.command('mute', mute());
-  bot.command('unmute', unmute());
-  bot.command('promote', promote());
-  bot.command('setdescription', setDescription());
+  // /link or link command
+  bot.hears(/^(\/)?link$/, async (ctx) => {
+    if (ctx.chat.type === 'private') return;
+    const link = `https://t.me/${ctx.chat.username || `c/${String(ctx.chat.id).slice(4)}`}`;
+    ctx.reply(`🔗 Group link:\n${link}`);
+  });
+
+  // /date or today's date
+  bot.hears(/^(\/)?(date|today('|’)s date)$/i, async (ctx) => {
+    const now = new Date();
+    const formatted = now.toLocaleDateString('en-IN', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    ctx.reply(`📅 Today's date is: ${formatted}`);
+  });
 }
