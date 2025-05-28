@@ -16,7 +16,7 @@ const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
 const SOURCE_CHANNEL = '@pw_yakeen2_neet2026';
 const TARGET_CHANNEL = '@AkashTest_Series';
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://your-vercel-app.vercel.app'; // Replace with your Vercel app URL
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://founderbot.vercel.app/ // Replace with your Vercel app URL
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
