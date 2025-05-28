@@ -1,5 +1,6 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, Context } from 'telegraf';
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import axios from 'axios';
 import { saveToSheet } from './utils/saveToSheet';
 import { fetchChatIdsFromSheet } from './utils/chatStore';
 import { about } from './commands/about';
@@ -13,8 +14,9 @@ import { setupBroadcast } from './commands/broadcast';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const SOURCE_CHANNEL = '@pw_yakeen2_neet2026'; // Source channel
-const TARGET_CHANNEL = '@AkashTest_Series'; // Target channel where bot is admin
+const SOURCE_CHANNEL = '@pw_yakeen2_neet2026';
+const TARGET_CHANNEL = '@AkashTest_Series';
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://your-vercel-app.vercel.app'; // Replace with your Vercel app URL
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
 console.log(`Running bot in ${ENVIRONMENT} mode`);
@@ -49,6 +51,58 @@ bot.command('users', async (ctx) => {
 
 // Admin: /broadcast
 setupBroadcast(bot);
+
+// --- /support Command ---
+bot.command('support', async (ctx) => {
+  if (!ctx.chat || !isPrivateChat(ctx.chat.type)) {
+    return ctx.reply('Please use this command in a private chat.');
+  }
+
+  const user = ctx.from;
+  const args = ctx.message.text.split(' ').slice(1); // Get arguments after /support
+  const amount = args[0] === '20' ? 20 : 10; // Default to 10 INR, 20 INR if specified
+  const productId = `support_${amount}`; // Unique product ID
+  const productName = `Support Donation (${amount} INR)`;
+  const telegramLink = 'https://t.me/AkashTest_Series'; // Replace with actual Telegram link for post-payment access
+
+  const customerName = user?.first_name || 'Unknown';
+  const customerUsername = user?.username ? `@${user.username}` : 'N/A';
+  const customerId = user?.id.toString();
+  const customerEmail = `${customerId}@example.com`; // Placeholder email, as Telegram doesn't provide email
+  const customerPhone = '9999999999'; // Placeholder phone, replace with actual if available
+
+  try {
+    const response = await axios.post(`${BASE_URL}/api/createOrder`, {
+      productId,
+      productName,
+      amount,
+      telegramLink,
+      customerName,
+      customerEmail,
+      customerPhone,
+    });
+
+    if (response.data.success) {
+      const { paymentSessionId } = response.data;
+      await ctx.reply(
+        `Thank you for supporting us! Please complete the payment of ₹${amount} using the link below:\n\n` +
+        `https://api.cashfree.com/pg/links/${paymentSessionId}\n\n` +
+        `After payment, you'll be redirected to the Telegram group. You can also join manually: ${telegramLink}`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[{ text: 'Pay Now', url: `https://api.cashfree.com/pg/links/${paymentSessionId}` }]],
+          },
+        }
+      );
+    } else {
+      await ctx.reply('❌ Failed to initiate payment. Please try again later.');
+    }
+  } catch (error) {
+    console.error('Error initiating payment:', error);
+    await ctx.reply('❌ An error occurred while processing your request. Please try again.');
+  }
+});
 
 // --- Callback Handler ---
 bot.on('callback_query', async (ctx) => {
@@ -158,7 +212,6 @@ bot.on('channel_post', async (ctx) => {
     console.log(`Forwarded message ${message.message_id} from ${SOURCE_CHANNEL} to ${TARGET_CHANNEL}`);
   } catch (err: unknown) {
     console.error(`Error forwarding message from ${SOURCE_CHANNEL} to ${TARGET_CHANNEL}:`, err);
-    // Safely handle the error message
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     await ctx.telegram.sendMessage(
       ADMIN_ID,
