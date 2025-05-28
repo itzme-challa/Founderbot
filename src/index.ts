@@ -1,48 +1,21 @@
-const { Telegraf } = require('telegraf');
-require('dotenv').config();
+import { Telegraf } from 'telegraf';
 
-// Initialize the bot with the token from environment variables
-const bot = new Telegraf(process.env.BOT_TOKEN);
+import { about } from './commands';
+import { greeting } from './text';
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import { development, production } from './core';
 
-// Handle /start command
-bot.start((ctx) => {
-  ctx.reply('Welcome to the bot! Type /help to see what I can do.');
-});
+const BOT_TOKEN = process.env.BOT_TOKEN || '';
+const ENVIRONMENT = process.env.NODE_ENV || '';
 
-// Handle /help command
-bot.help((ctx) => {
-  ctx.reply('I’m a simple bot! Send me any message, and I’ll echo it back. Use /start to greet me or /help to see this message.');
-});
+const bot = new Telegraf(BOT_TOKEN);
 
-// Echo back any text message
-bot.on('text', (ctx) => {
-  ctx.reply(`You said: ${ctx.message.text}`);
-});
+bot.command('about', about());
+bot.on('message', greeting());
 
-// Error handling
-bot.catch((err, ctx) => {
-  console.error(`Error for ${ctx.updateType}`, err);
-});
-
-// Vercel serverless function handler
-module.exports = async (req, res) => {
-  try {
-    // Set webhook for Telegram
-    if (req.method === 'GET') {
-      const webhookUrl = `https://${req.headers.host}/`;
-      await bot.telegram.setWebhook(webhookUrl);
-      return res.status(200).json({ status: 'Webhook set', url: webhookUrl });
-    }
-
-    // Handle Telegram updates
-    if (req.method === 'POST') {
-      await bot.handleUpdate(req.body);
-      return res.status(200).json({ status: 'ok' });
-    }
-
-    return res.status(405).json({ error: 'Method not allowed' });
-  } catch (error) {
-    console.error('Error in handler:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+//prod mode (Vercel)
+export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
+  await production(req, res, bot);
 };
+//dev mode
+ENVIRONMENT !== 'production' && development(bot);
