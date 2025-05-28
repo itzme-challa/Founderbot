@@ -2,15 +2,13 @@
   "compilerOptions": {
     "strict": true,
     "target": "esnext",
-    "module": "commonjs",
     "moduleResolution": "node",
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
+    "module": "commonjs",
     "skipLibCheck": true,
     "sourceMap": true,
     "outDir": "public",
-    "lib": ["esnext", "dom"]
+    "lib": ["esnext", "dom"],
+    "resolveJsonModule": true
   },
-  "include": ["src", "src/types"],
   "exclude": ["node_modules"]
 }
