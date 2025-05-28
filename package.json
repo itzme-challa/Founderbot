@@ -1,30 +1,19 @@
 {
-  "name": "telegram-bot-vercel-boilerplate",
-  "version": "1.1.0",
-  "description": "Telegram Bot Vercel Boilerplate",
-  "main": "src/index.ts",
-  "author": "Mark Pavlov (https://github.com/sollidy)",
-  "homepage": "https://github.com/sollidy/telegram-bot-vercel-boilerplate",
+  "name": "founderbot",
+  "version": "1.0.0",
+  "main": "api/index.ts",
+  "scripts": {
+    "start": "vercel dev",
+    "dev": "ts-node src/index.ts"
+  },
   "dependencies": {
-    "@vercel/node": "^5.1.16",
-    "dotenv-cli": "^8.0.0",
-    "telegraf": "^4.16.3"
+    "telegraf": "^4.16.3",
+    "axios": "^1.7.7",
+    "@vercel/node": "^3.2.14"
   },
   "devDependencies": {
-    "@types/debug": "^4.1.12",
-    "@types/node": "^22.8.6",
-    "@vercel/ncc": "^0.38.2",
-    "debug": "^4.3.7",
-    "nodemon": "^3.1.7",
-    "prettier": "^3.3.3",
+    "typescript": "^5.6.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
-  },
-  "scripts": {
-    "dev": "DEBUG=bot* dotenv -- nodemon -e ts -x ts-node src/index.ts",
-    "devWindows": "@powershell -Command $env:DEBUG='bot*';dotenv -- -- nodemon -e ts -x ts-node src/index.ts",
-    "build": "ncc build src/index.ts -o public -m",
-    "prettier": "prettier --write 'src/**/*.ts'",
-    "lint": "tsc --noemit"
+    "@types/node": "^22.7.4"
   }
 }
