@@ -26,8 +26,12 @@ const getRandomGreeting = (name: string): string => {
 const greeting = () => async (ctx: Context) => {
   debug('Triggered "greeting" text command');
 
+  // Ignore if the message is from a group or supergroup
+  if (ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup') {
+    return; // Do nothing in group chats
+  }
+
   const messageId = ctx.message?.message_id;
-  // Safely handle user name, falling back to username or "friend" if no name is available
   const firstName = ctx.message?.from.first_name || ctx.message?.from.username || 'friend';
   const lastName = ctx.message?.from.last_name || '';
   const userName = lastName ? `${firstName} ${lastName}`.trim() : firstName;
@@ -36,7 +40,6 @@ const greeting = () => async (ctx: Context) => {
     const response = getRandomGreeting(userName);
     await replyToMessage(ctx, messageId, response);
   } else {
-    // Fallback in case messageId is not available
     await ctx.reply(`Hello, ${userName}! Something went wrong, but I'm still happy to greet you! 😄`);
   }
 };
