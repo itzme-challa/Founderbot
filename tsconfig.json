@@ -1,14 +1,14 @@
 {
   "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
     "strict": true,
-    "target": "esnext",
+    "esModuleInterop": true,
     "moduleResolution": "node",
-    "module": "commonjs",
-    "skipLibCheck": true,
-    "sourceMap": true,
-    "outDir": "public",
-    "lib": ["esnext", "dom"],
+    "outDir": "./public",
+    "rootDir": "./src",
     "resolveJsonModule": true
   },
+  "include": ["src/**/*"],
   "exclude": ["node_modules"]
 }
