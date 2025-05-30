@@ -5,8 +5,7 @@ import { db, ref, push, set, onValue } from './utils/firebase';
 import { DataSnapshot } from 'firebase/database';
 import { saveToSheet } from './utils/saveToSheet';
 import { about } from './commands';
-import { quizes } from './text';
-import { greeting } from './greetings';
+import { quizes, greeting } from './text'; // Fixed import
 import { development, production } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { quote } from './commands/quotes';
