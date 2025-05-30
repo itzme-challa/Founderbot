@@ -1,94 +1,111 @@
 import { Telegraf } from 'telegraf';
+import { about } from './commands';
+import { greeting } from './text';
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { development, production } from './core';
+import { Context } from 'telegraf';
 
-// Initialize bot with token
+// Environment variables
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
-const CHANNEL_ID = '@NEETUG_26';
+const CHANNEL_ID = process.env.CHANNEL_ID || '@NEETUG_26'; // Channel to search (e.g., @NEETUG_26)
 
+// Initialize bot
 const bot = new Telegraf(BOT_TOKEN);
 
-// Commands
-const about = () => (ctx: any) => {
-  ctx.reply('This bot searches for notes in @NEETUG_26. Use /search <keyword> to find messages.');
-};
+// Command: /about
+bot.command('about', about());
 
-const greeting = () => (ctx: any) => {
-  ctx.reply('Hello! Use /search <keyword> to find notes in @NEETUG_26.');
-};
+// Greeting for non-command messages
+bot.on('text', greeting());
 
-// Search command
-bot.command('search', async (ctx) => {
-  const query = ctx.message.text.split(' ').slice(1).join(' ').toLowerCase();
-  if (!query) {
-    return ctx.reply('Please provide a search term, e.g., /search physics notes');
-  }
+// Search functionality for messages like "physics notes"
+bot.hears(/.*/, async (ctx: Context) => {
+  const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+  if (!messageText) return;
+
+  // Ignore commands
+  if (messageText.startsWith('/')) return;
+
   try {
-    ctx.reply(`Searching for "${query}" in @NEETUG_26...`);
-    const messageId = 123; // Replace with actual message ID from search
-    const messageLink = `https://t.me/NEETUG_26/${messageId}`;
-    ctx.reply(`Found a match: ${messageLink}`);
+    // Split message into keywords (case-insensitive)
+    const keywords = messageText.toLowerCase().split(/\s+/);
+
+    // Fetch recent messages from the channel
+    // Note: Telegram API doesn't provide a direct search endpoint, so we fetch recent messages
+    const messages = await fetchChannelMessages(ctx, keywords);
+
+    if (messages.length === 0) {
+      await ctx.reply('No matching notes found in the channel.');
+      return;
+    }
+
+    // Send up to 5 matching messages (to avoid flooding)
+    for (const msg of messages.slice(0, 5)) {
+      try {
+        // Attempt to forward the message
+        await ctx.telegram.forwardMessage(
+          ctx.chat!.id,
+          CHANNEL_ID,
+          msg.message_id
+        );
+      } catch (error) {
+        // If forwarding fails (e.g., due to permissions), send the message link instead
+        const link = `https://t.me/${CHANNEL_ID.replace('@', '')}/${msg.message_id}`;
+        await ctx.reply(`Found a match: ${link}`);
+      }
+    }
+
+    if (messages.length > 5) {
+      await ctx.reply(`Found ${messages.length} matches, showing the first 5.`);
+    }
   } catch (error) {
-    console.error('Search error:', error);
-    ctx.reply('An error occurred while searching. Please try again later.');
+    console.error('Error searching channel:', error);
+    await ctx.reply('An error occurred while searching for notes. Please try again later.');
   }
 });
 
-// Register commands
-bot.command('about', about());
-bot.on('message', greeting());
+// Function to fetch and filter channel messages
+async function fetchChannelMessages(ctx: Context, keywords: string[]) {
+  const messages: any[] = [];
+  let lastMessageId: number | undefined;
 
-// Production mode (Vercel)
-export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
-  try {
-    // Log the incoming request for debugging
-    console.log('Incoming request:', {
-      method: req.method,
-      headers: req.headers,
-      body: req.body,
-    });
-
-    // Handle GET requests (like health checks or favicon)
-    if (req.method === 'GET') {
-      return res.status(200).json({
-        status: 'ok',
-        message: 'Telegram bot is running',
-        environment: ENVIRONMENT,
+  // Fetch messages in batches (max 100 per request, Telegram API limit)
+  for (let i = 0; i < 3; i++) { // Limit to 3 batches (300 messages) to avoid rate limits
+    try {
+      const updates = await ctx.telegram.getChatHistory(CHANNEL_ID, {
+        limit: 100,
+        offset_id: lastMessageId,
       });
+
+      if (!updates.messages.length) break;
+
+      // Filter messages containing all keywords
+      const filteredMessages = updates.messages.filter((msg: any) => {
+        if (!msg.text) return false;
+        const text = msg.text.toLowerCase();
+        return keywords.every(keyword => text.includes(keyword));
+      });
+
+      messages.push(...filteredMessages);
+
+      // Update lastMessageId for the next batch
+      lastMessageId = updates.messages[updates.messages.length - 1].message_id;
+    } catch (error) {
+      console.error('Error fetching channel messages:', error);
+      break;
     }
-
-    // Check if the request is a POST with a valid body
-    if (req.method !== 'POST') {
-      console.warn('Invalid method:', req.method);
-      return res.status(405).send('Method Not Allowed');
-    }
-
-    if (!req.body) {
-      console.warn('Request body is undefined');
-      return res.status(400).send('Bad Request: Missing body');
-    }
-
-    if (!req.body.update_id) {
-      console.warn('Invalid Telegram update:', req.body);
-      return res.status(400).send('Bad Request: Invalid Telegram update');
-    }
-
-    // Process the Telegram update
-    await bot.handleUpdate(req.body);
-
-    // Send a 200 response to acknowledge receipt
-    res.status(200).send('OK');
-  } catch (error) {
-    console.error('Vercel error:', error);
-    res.status(500).send('Internal Server Error');
   }
+
+  return messages;
+}
+
+// Prod mode (Vercel)
+export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
+  await production(req, res, bot);
 };
 
-// Development mode
+// Dev mode
 if (ENVIRONMENT !== 'production') {
-  bot.launch().then(() => {
-    console.log('Bot started in development mode');
-  }).catch((err) => {
-    console.error('Failed to start bot:', err);
-  });
+  development(bot);
 }
