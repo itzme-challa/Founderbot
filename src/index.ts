@@ -8,7 +8,7 @@ const CHANNEL_ID = '@NEETUG_26';
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Commands (from your original code)
+// Commands
 const about = () => (ctx: any) => {
   ctx.reply('This bot searches for notes in @NEETUG_26. Use /search <keyword> to find messages.');
 };
@@ -17,7 +17,7 @@ const greeting = () => (ctx: any) => {
   ctx.reply('Hello! Use /search <keyword> to find notes in @NEETUG_26.');
 };
 
-// Search command (unchanged for brevity, but ensure it’s implemented as in the previous response)
+// Search command
 bot.command('search', async (ctx) => {
   const query = ctx.message.text.split(' ').slice(1).join(' ').toLowerCase();
   if (!query) {
@@ -34,6 +34,10 @@ bot.command('search', async (ctx) => {
   }
 });
 
+// Register commands
+bot.command('about', about());
+bot.on('message', greeting());
+
 // Production mode (Vercel)
 export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
   try {
@@ -43,6 +47,15 @@ export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
       headers: req.headers,
       body: req.body,
     });
+
+    // Handle GET requests (like health checks or favicon)
+    if (req.method === 'GET') {
+      return res.status(200).json({
+        status: 'ok',
+        message: 'Telegram bot is running',
+        environment: ENVIRONMENT,
+      });
+    }
 
     // Check if the request is a POST with a valid body
     if (req.method !== 'POST') {
@@ -79,7 +92,3 @@ if (ENVIRONMENT !== 'production') {
     console.error('Failed to start bot:', err);
   });
 }
-
-// Register commands
-bot.command('about', about());
-bot.on('message', greeting());
