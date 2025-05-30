@@ -1,7 +1,7 @@
 import { Context } from 'telegraf';
 import createDebug from 'debug';
 import { distance } from 'fastest-levenshtein';
-import { db, ref, onValue } from '../utils/firebase';
+import { db, ref, onValue, DataSnapshot } from '../utils/firebase';
 
 const debug = createDebug('bot:quizes');
 
@@ -14,19 +14,19 @@ const getSimilarityScore = (a: string, b: string): number => {
   return (maxLength - distance(a, b)) / maxLength;
 };
 
-// Function to find best matching chapter using fuzzy search
-const findBestMatchingChapter = (chapters: string[], query: string): string | null => {
-  if (!query || !chapters.length) return null;
+// Function to find best matching chapter or subject using fuzzy search
+const findBestMatchingItem = (items: string[], query: string): string | null => {
+  if (!query || !items.length) return null;
 
   // First try exact match (case insensitive)
-  const exactMatch = chapters.find((ch) => ch.toLowerCase() === query.toLowerCase());
+  const exactMatch = items.find((item) => item.toLowerCase() === query.toLowerCase());
   if (exactMatch) return exactMatch;
 
   // Then try contains match
-  const containsMatch = chapters.find(
-    (ch) =>
-      ch.toLowerCase().includes(query.toLowerCase()) ||
-      query.toLowerCase().includes(ch.toLowerCase())
+  const containsMatch = items.find(
+    (item) =>
+      item.toLowerCase().includes(query.toLowerCase()) ||
+      query.toLowerCase().includes(item.toLowerCase())
   );
   if (containsMatch) return containsMatch;
 
@@ -36,25 +36,25 @@ const findBestMatchingChapter = (chapters: string[], query: string): string | nu
   let bestMatch: string | null = null;
   let bestScore = 0.5; // Minimum threshold
 
-  for (const chapter of chapters) {
-    const chapterWords = chapter.toLowerCase().split(/\s+/);
+  for (const item of items) {
+    const itemWords = item.toLowerCase().split(/\s+/);
 
     // Calculate word overlap score
     const matchingWords = queryWords.filter((qw) =>
-      chapterWords.some((cw) => getSimilarityScore(qw, cw) > 0.7)
+      itemWords.some((cw) => getSimilarityScore(qw, cw) > 0.7)
     );
 
     const overlapScore = matchingWords.length / Math.max(queryWords.length, 1);
 
     // Calculate full string similarity
-    const fullSimilarity = getSimilarityScore(chapter.toLowerCase(), query.toLowerCase());
+    const fullSimilarity = getSimilarityScore(item.toLowerCase(), query.toLowerCase());
 
     // Combined score (weighted towards overlap)
     const totalScore = overlapScore * 0.7 + fullSimilarity * 0.3;
 
     if (totalScore > bestScore) {
       bestScore = totalScore;
-      bestMatch = chapter;
+      bestMatch = item;
     }
   }
 
@@ -160,15 +160,15 @@ const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]
     const questionsRef = ref(db, 'questions');
     onValue(
       questionsRef,
-      (snapshot) => {
+      (snapshot: DataSnapshot) => {
         const data = snapshot.val();
         if (!data) return resolve([]);
         let questions = Object.values(data);
         if (subject) {
-          questions = questions.filter((q: any) => q.subject.toLowerCase() === subject.toLowerCase());
+          questions = questions.filter((q: any) => q.subject?.toLowerCase() === subject.toLowerCase());
         }
         if (chapter) {
-          questions = questions.filter((q: any) => q.chapter.toLowerCase() === chapter.toLowerCase());
+          questions = questions.filter((q: any) => q.chapter?.toLowerCase() === chapter.toLowerCase());
         }
         resolve(questions);
       },
@@ -227,7 +227,7 @@ const quizes = () => async (ctx: Context) => {
       const chapters = await getUniqueItems('chapters');
 
       // Find the best matching chapter using fuzzy search
-      const matchedChapter = findBestMatchingChapter(chapters, chapterQuery);
+      const matchedChapter = findBestMatchingItem(chapters, chapterQuery);
 
       if (!matchedChapter) {
         const { message } = await getItemsMessage('chapters');
@@ -307,7 +307,7 @@ const quizes = () => async (ctx: Context) => {
       const subjects = await getUniqueItems('subjects');
 
       // Find the best matching subject using fuzzy search
-      const-matchedSubject = findBestMatchingChapter(subjects, subjectQuery); // Reusing fuzzy search for subjects
+      const matchedSubject = findBestMatchingItem(subjects, subjectQuery);
 
       if (!matchedSubject) {
         const { message } = await getItemsMessage('subjects');
