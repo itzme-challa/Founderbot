@@ -6,7 +6,7 @@ import { DataSnapshot } from 'firebase/database';
 import { saveToSheet } from './utils/saveToSheet';
 import { about } from './commands';
 import { quizes } from './text';
-import { greeting } from './text';
+import { greeting } from './greetings';
 import { development, production } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { quote } from './commands/quotes';
@@ -241,7 +241,7 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
   if (command.includes('_')) {
     const parts = command.split('_');
     subject = parts[0].replace(/^add/, '').toLowerCase();
-    chapter = parts.slice(1).join(' ').replace(/_/g, ' ').toLowerCase(); // Normalize case
+    chapter = parts.slice(1).join(' ').replace(/_/g, ' ').toLowerCase();
     pendingSubmissions[ctx.from.id] = {
       subject,
       chapter,
@@ -354,7 +354,7 @@ bot.on('message', async (ctx) => {
   }
 
   if (chat.id === ADMIN_ID && pendingSubmissions[chat.id]?.awaitingChapterSelection && msg.text) {
-    const submission = pendingSubmissions[chat.id];
+    const submission = pendingSubmissions[ctx.from.id];
     const chapterNumber = parseInt(msg.text.trim(), 10);
 
     const chapters = await fetchChapters(submission.subject);
@@ -424,7 +424,7 @@ bot.on('message', async (ctx) => {
         for (const q of submission.questions) {
           const questionsRef = ref(db, `questions/${submission.subject}/${submission.chapter}`);
           const newQuestionRef = push(questionsRef);
-          debug('Saving question to:', questionsRef.path, 'data:', q);
+          debug('Saving question to:', `questions/${submission.subject}/${submission.chapter}`, 'data:', q);
           await set(newQuestionRef, q);
         }
         await ctx.reply(
