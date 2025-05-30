@@ -3,7 +3,7 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 import { getAllChatIds, saveChatId, fetchChatIdsFromSheet } from './utils/chatStore';
 import { db, ref, push, set, onValue } from './utils/firebase';
 import { saveToSheet } from './utils/saveToSheet';
-import { about } from './commands';
+import { about } from './commands'; 
 import { quizes } from './text';
 import { greeting } from './text';
 import { development, production } from './core';
