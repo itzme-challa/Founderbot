@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import createDebug from 'debug';
 import { distance } from 'fastest-levenshtein';
 import { db, ref, onValue } from '../utils/firebase';
-import { DataSnapshot } from 'firebase/database'; // Import DataSnapshot directly
+import { DataSnapshot } from 'firebase/database';
 
 const debug = createDebug('bot:quizes');
 
@@ -125,8 +125,8 @@ const createTelegraphPage = async (title: string, items: string[]) => {
         tag: 'code',
         children: [
           title.includes('Chapters')
-            ? '/chapter living world 2'
-            : '/subject biology 2',
+            ? '/chapter Living World 2'
+            : '/subject Biology 2',
         ],
       },
     ];
@@ -135,14 +135,13 @@ const createTelegraphPage = async (title: string, items: string[]) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        access_token: accessToken,
-        title: `EduHub ${title} - ${dateTimeString}`,
+        title: `Edu ${title} - ${dateTimeString}`,
         author_name: 'EduHub Bot',
-        author_url: 'https://t.me/neetpw01',
+        author_url: 'https://t.me/neetpng',
         content,
-        return_content: false,
-      }),
-    });
+        return_content: true,
+      })
+    );
     const data = await res.json();
     if (data.ok) {
       return data.result.url;
@@ -158,34 +157,104 @@ const createTelegraphPage = async (title: string, items: string[]) => {
 // Function to fetch questions from Firebase
 const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]> => {
   return new Promise((resolve) => {
-    const questionsRef = ref(db, 'questions');
+    let path = 'questions';
+    if (subject && chapter) {
+      path = `questions/${subject.toLowerCase()}`;
+    } else if (subject && chapter) {
+      path = `questions/${subject.toLowerCase()}/${chapter.toLowerCase()}`;
+    }
+    const questionsRef = ref(db, path);
     onValue(
       questionsRef,
       (snapshot: DataSnapshot) => {
-        const data = snapshot.val();
-        if (!data) return resolve([]);
-        let questions = Object.values(data);
-        if (subject) {
-          questions = questions.filter((q: any) => q.subject?.toLowerCase() === subject.toLowerCase());
+        const data = [];
+        if (subject && chapter) {
+          // Fetch all questions under subject -> chapter
+          const subjectData = snapshot.val();
+          if (subjectData) {
+            for (const chapterKey in subjectData) {
+              const chapterQuestions = subjectData[chapterKey];
+              for (const questionId in chapterQuestions) {
+                data.push({
+                  ...chapterQuestions[questionId],
+                  subject,
+                  chapter: chapterKey,
+                });
+              }
+            }
+          }
+        } else if (subject && chapter) {
+          // Fetch questions for specific subject and chapter
+          const chapterData = snapshot.val();
+          if (chapterData) {
+            for (const questionId in chapterData) {
+              data.push({
+                ...chapterData[questionId],
+                subject,
+                chapter,
+              });
+            }
+          }
+        } else {
+          // Fetch all questions
+          const allData = snapshot.val();
+          if (allData) {
+            for (const subjectKey in allData) {
+              for (const chapterKey in allData[subjectKey]) {
+                const chapterQuestions = allData[subjectKey][chapterKey];
+                for (const questionId in chapterQuestions) {
+                  data.push({
+                    ...chapterQuestions[questionId],
+                    subject: subjectKey,
+                    chapter: chapterKey,
+                  });
+                }
+              }
+            }
+          }
         }
-        if (chapter) {
-          questions = questions.filter((q: any) => q.chapter?.toLowerCase() === chapter.toLowerCase());
-        }
-        resolve(questions);
+        resolve(data);
       },
-      { onlyOnce: true }
+      {
+        onlyOnce: true,
+        errorCallback: (error) => {
+          debug('Error fetching questions:', error);
+          resolve([]);
+        },
+      }
     );
   });
 };
 
 // Function to get unique chapters or subjects
 const getUniqueItems = async (type: 'chapters' | 'subjects', subject?: string): Promise<string[]> => {
-  const questions = await fetchQuestions(subject);
-  if (type === 'chapters') {
-    return [...new Set(questions.map((q: any) => q.chapter).filter((ch: any) => ch))].sort();
-  } else {
-    return [...new Set(questions.map((q: any) => q.subject).filter((s: any) => s))].sort();
-  }
+  return new Promise((resolve) => {
+    if (type === 'subjects') {
+      const subjectsRef = ref(db, 'questions');
+      onValue(
+        subjectsRef,
+        (snapshot: DataSnapshot) => {
+          const data = snapshot.val();
+          const subjects = data ? Object.keys(data) : [];
+          resolve(subjects.sort());
+        },
+        { onlyOnce: true }
+      );
+    } else if (type === 'chapters' && subject) {
+      const chaptersRef = ref(db, `questions/${subject.toLowerCase()}`);
+      onValue(
+        chaptersRef,
+        (snapshot: DataSnapshot) => {
+          const data = snapshot.val();
+          const chapters = data ? Object.keys(data) : [];
+          resolve(chapters.sort());
+        },
+        { onlyOnce: true }
+      );
+    } else {
+      resolve([]);
+    }
+  });
 };
 
 // Function to generate message with chapters or subjects list
@@ -198,11 +267,11 @@ const getItemsMessage = async (type: 'chapters' | 'subjects', subject?: string) 
       message: `📚 <b>${title}</b>\n\n` +
         `View all ${type} here: <a href="${telegraphUrl}">${telegraphUrl}</a>\n\n` +
         `Then use: <code>/${type === 'chapters' ? 'chapter' : 'subject'} [name] [count]</code>\n` +
-        `Example: <code>/${type === 'chapters' ? 'chapter living world 2' : 'subject biology 2'}</code>`,
+        `Example: <code>/${type === 'chapters' ? 'chapter Living World 2' : 'subject Biology 2'}</code>`,
       items,
     };
   } catch (err) {
-    debug(`Error generating ${type} message:`, err);
+    debug('Error generating ${type} message:', err);
     throw err;
   }
 };
@@ -215,7 +284,7 @@ const quizes = () => async (ctx: Context) => {
   const text = ctx.message.text.trim().toLowerCase();
   const chapterMatch = text.match(/^\/chapter\s+(.+?)(?:\s+(\d+))?$/);
   const subjectMatch = text.match(/^\/subject\s+(.+?)(?:\s+(\d+))?$/);
-  const randomMatch = text.match(/^\/random(?:\s+(\d+))?$/);
+  const randomMatch = text.match(/^\/random(?:\s*(\d+))?$/);
   const cmdMatch = text.match(/^\/(pyq(b|c|p)?|[bcp]1)(\s*\d+)?$/);
 
   // Handle /chapter command
@@ -224,7 +293,6 @@ const quizes = () => async (ctx: Context) => {
     const count = chapterMatch[2] ? parseInt(chapterMatch[2], 10) : 1;
 
     try {
-      const allQuestions = await fetchQuestions();
       const chapters = await getUniqueItems('chapters');
 
       // Find the best matching chapter using fuzzy search
@@ -238,12 +306,23 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      const filteredByChapter = allQuestions.filter(
-        (q: any) => q.chapter?.trim().toLowerCase() === matchedChapter.toLowerCase()
+      // Get subject for the chapter
+      let subject = '';
+      const allQuestions = await fetchQuestions();
+      const questionWithChapter = allQuestions.find(
+        (q: any) => q.chapter?.toLowerCase() === matchedChapter.toLowerCase()
       );
+      if (questionWithChapter) {
+        subject = questionWithChapter.subject;
+      } else {
+        await ctx.reply(`No questions found for chapter "${matchedChapter}".`);
+        return;
+      }
+
+      const filteredByChapter = await fetchQuestions(subject, matchedChapter);
 
       if (!filteredByChapter.length) {
-        const { message } = await getItemsMessage('chapters');
+        const { message } = await getItemsMessage('chapters', subject);
         await ctx.replyWithHTML(
           `❌ No questions found for chapter "<b>${matchedChapter}</b>"\n\n${message}`
         );
@@ -269,10 +348,10 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options.A,
-          question.options.B,
-          question.options.C,
-          question.options.D,
+          question.options?.A || 'Option A',
+          question.options?.B || 'Option B',
+          question.options?.C || 'Option C',
+          question.options?.D || 'Option D',
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
@@ -281,7 +360,7 @@ const quizes = () => async (ctx: Context) => {
         }
 
         await ctx.sendPoll(
-          question.question,
+          question.question || 'No question text',
           options,
           {
             type: 'quiz',
@@ -304,7 +383,6 @@ const quizes = () => async (ctx: Context) => {
     const count = subjectMatch[2] ? parseInt(subjectMatch[2], 10) : 1;
 
     try {
-      const allQuestions = await fetchQuestions(subjectQuery);
       const subjects = await getUniqueItems('subjects');
 
       // Find the best matching subject using fuzzy search
@@ -318,9 +396,7 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      const filteredBySubject = allQuestions.filter(
-        (q: any) => q.subject?.trim().toLowerCase() === matchedSubject.toLowerCase()
-      );
+      const filteredBySubject = await fetchQuestions(matchedSubject);
 
       if (!filteredBySubject.length) {
         const { message } = await getItemsMessage('subjects');
@@ -349,10 +425,10 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options.A,
-          question.options.B,
-          question.options.C,
-          question.options.D,
+          question.options?.A || 'Option A',
+          question.options?.B || 'Option B',
+          question.options?.C || 'Option C',
+          question.options?.D || 'Option D',
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
@@ -361,7 +437,7 @@ const quizes = () => async (ctx: Context) => {
         }
 
         await ctx.sendPoll(
-          question.question,
+          question.question || 'No question text',
           options,
           {
             type: 'quiz',
@@ -395,10 +471,10 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options.A,
-          question.options.B,
-          question.options.C,
-          question.options.D,
+          question.options?.A || 'Option A',
+          question.options?.B || 'Option B',
+          question.options?.C || 'Option C',
+          question.options?.D || 'Option D',
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
@@ -407,7 +483,7 @@ const quizes = () => async (ctx: Context) => {
         }
 
         await ctx.sendPoll(
-          question.question,
+          question.question || 'No question text',
           options,
           {
             type: 'quiz',
@@ -460,10 +536,10 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options.A,
-          question.options.B,
-          question.options.C,
-          question.options.D,
+          question.options?.A || 'Option A',
+          question.options?.B || 'Option B',
+          question.options?.C || 'Option C',
+          question.options?.D || 'Option D',
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
@@ -472,7 +548,7 @@ const quizes = () => async (ctx: Context) => {
         }
 
         await ctx.sendPoll(
-          question.question,
+          question.question || 'No question text',
           options,
           {
             type: 'quiz',
