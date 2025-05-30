@@ -1,6 +1,8 @@
 {
   "name": "founderbot",
   "version": "1.0.0",
+  "description": "A Telegram bot for educational quizzes and resources",
+  "author": "EduHub Team",
   "scripts": {
     "build": "ncc build src/index.ts -o public -m"
   },
