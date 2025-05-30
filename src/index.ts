@@ -10,8 +10,8 @@ const bot = new Telegraf(BOT_TOKEN);
 
 // Simulated message database (replace with actual database or API call)
 const messageDatabase = [
-  { id: 123, text: 'Physics notes on mechanics', keywords: ['physics', 'mechanics', 'notes'] },
-  { id: 124, text: 'Chemistry organic notes', keywords: ['chemistry', 'organic', 'notes'] },
+  { id: 123, text: 'Physics notes on mechanics', keywords: ['physics', 'mechanics', 'notes', 'message'] },
+  { id: 124, text: 'Chemistry organic notes', keywords: ['chemistry', 'organic', 'notes', 'message'] },
   // Add more messages as needed
 ];
 
@@ -30,23 +30,37 @@ bot.command('search', async (ctx) => {
   try {
     ctx.reply(`Searching for "${query}" in @NEETUG_26...`);
 
-    // Simulated search in message database
-    const results = messageDatabase.filter((msg) =>
-      msg.keywords.some((keyword) => keyword.includes(query))
+    // Search in message database (text and keywords)
+    const results = messageDatabase.filter(
+      (msg) =>
+        msg.text.toLowerCase().includes(query) ||
+        msg.keywords.some((keyword) => keyword.toLowerCase().includes(query))
     );
 
     if (results.length === 0) {
-      return ctx.reply('No matches found. Try a different keyword.');
+      // Fallback: Try fetching recent channel messages (limited by Telegram API)
+      try {
+        const chat = await ctx.telegram.getChat(CHANNEL_ID);
+        const messages = await ctx.telegram.getChat(CHANNEL_ID); // Note: Telegram API doesn't provide direct message fetch
+        ctx.reply('No matches found in database. Real-time channel search is limited. Try a different keyword.');
+        return;
+      } catch (fetchError) {
+        console.error('Channel fetch error:', fetchError);
+        ctx.reply('No matches found. Try a different keyword.');
+        return;
+      }
     }
 
     // Forward the first matching message
     const messageId = results[0].id;
-    await ctx.telegram.forwardMessage(
-      ctx.chat.id,
-      CHANNEL_ID,
-      messageId
-    );
-    ctx.reply(`Forwarded a matching message from @NEETUG_26.`);
+    try {
+      await ctx.telegram.forwardMessage(ctx.chat.id, CHANNEL_ID, messageId);
+      ctx.reply(`Forwarded a matching message from @NEETUG_26.`);
+    } catch (forwardError) {
+      console.error('Forward error:', forwardError);
+      const messageLink = `https://t.me/NEETUG_26/${messageId}`;
+      ctx.reply(`Could not forward message. View it here: ${messageLink}`);
+    }
   } catch (error) {
     console.error('Search error:', error);
     ctx.reply('An error occurred while searching. Please try again later.');
@@ -60,9 +74,22 @@ bot.on('text', (ctx) => {
   }
 });
 
+// Capture new channel messages to update database (requires admin privileges)
+bot.on('channel_post', (ctx) => {
+  const message = ctx.channelPost;
+  if (message.chat.id.toString() === CHANNEL_ID || message.chat.username === CHANNEL_ID) {
+    const messageId = message.message_id;
+    const text = message.text || '';
+    const keywords = text.toLowerCase().split(' ').filter((word) => word.length > 3); // Simple keyword extraction
+    messageDatabase.push({ id: messageId, text, keywords });
+    console.log(`Added message ${messageId} to database: ${text}`);
+  }
+});
+
 // Webhook setup for production
 if (ENVIRONMENT === 'production' && WEBHOOK_URL) {
-  bot.telegram.setWebhook(`${WEBHOOK_URL}/api/bot`)
+  bot.telegram
+    .setWebhook(`${WEBHOOK_URL}/api/bot`)
     .then(() => console.log('Webhook set successfully'))
     .catch((err) => console.error('Failed to set webhook:', err));
 }
