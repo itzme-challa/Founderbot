@@ -39,8 +39,8 @@ if (ENVIRONMENT === 'production' && WEBHOOK_URL) {
   bot.telegram.setWebhook(`${WEBHOOK_URL}/api/bot`);
 }
 
-// Export the Vercel handler
-export default async (req: VercelRequest, res: VercelResponse) => {
+// Export the Vercel handler function
+export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
   try {
     // Handle GET requests (health checks)
     if (req.method === 'GET') {
