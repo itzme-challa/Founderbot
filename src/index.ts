@@ -87,18 +87,13 @@ async function createTelegraphPage(title: string, content: string | any[]) {
 // --- FETCH CHAPTERS ---
 async function fetchChapters(subject: string): Promise<string[]> {
   return new Promise((resolve) => {
-    const questionsRef = ref(db, 'questions');
+    const subjectRef = ref(db, `questions/${subject.toLowerCase()}`);
     onValue(
-      questionsRef,
+      subjectRef,
       (snapshot: DataSnapshot) => {
         const data = snapshot.val();
         if (!data) return resolve([]);
-        const questions = Object.values(data).filter(
-          (q: any) => q.subject?.toLowerCase() === subject.toLowerCase()
-        );
-        const chapters = [...new Set(questions.map((q: any) => q.chapter))].filter(
-          (ch) => ch
-        );
+        const chapters = Object.keys(data).filter((ch) => ch);
         resolve(chapters.sort());
       },
       { onlyOnce: true }
@@ -245,7 +240,7 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
   if (command.includes('_')) {
     // Handle /add<Subject>_<Chapter> (e.g., /addBiology_Living_World)
     const parts = command.split('_');
-    subject = parts[0].replace(/^add/, '');
+    subject = parts[0].replace(/^add/, '').toLowerCase();
     chapter = parts.slice(1).join(' ').replace(/_/g, ' '); // Convert underscores to spaces
     // Store submission and proceed directly to question collection
     pendingSubmissions[ctx.from.id] = {
@@ -267,8 +262,8 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
     return;
   } else {
     // Handle /add<Subject> (e.g., /addBiology)
-    subject = command.replace(/^add/, '');
-    chapter = 'Random'; // Default chapter if none specified
+    subject = command.replace(/^add/, '').toLowerCase();
+    chapter = 'random'; // Default chapter if none specified
   }
 
   // Fetch chapters for the subject only if no chapter is specified
@@ -419,8 +414,6 @@ bot.on('message', async (ctx) => {
     const correctOptionLetter = ['A', 'B', 'C', 'D'][correctOptionIndex];
 
     const question = {
-      subject: submission.subject,
-      chapter: submission.chapter,
       question: poll.question,
       options: {
         A: poll.options[0].text,
@@ -444,8 +437,8 @@ bot.on('message', async (ctx) => {
     } else {
       // Save all questions to Firebase
       try {
-        const questionsRef = ref(db, 'questions');
         for (const q of submission.questions) {
+          const questionsRef = ref(db, `questions/${submission.subject}/${submission.chapter}`);
           const newQuestionRef = push(questionsRef);
           await set(newQuestionRef, q);
         }
