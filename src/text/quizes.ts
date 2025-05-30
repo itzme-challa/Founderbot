@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import createDebug from 'debug';
 import { distance } from 'fastest-levenshtein';
 import { db, ref, onValue } from '../utils/firebase';
-import { DataSnapshot } from 'firebase/database'; // Import DataSnapshot directly
+import { DataSnapshot } from 'firebase/database';
 
 const debug = createDebug('bot:quizes');
 
@@ -19,11 +19,9 @@ const getSimilarityScore = (a: string, b: string): number => {
 const findBestMatchingItem = (items: string[], query: string): string | null => {
   if (!query || !items.length) return null;
 
-  // First try exact match (case insensitive)
   const exactMatch = items.find((item) => item.toLowerCase() === query.toLowerCase());
   if (exactMatch) return exactMatch;
 
-  // Then try contains match
   const containsMatch = items.find(
     (item) =>
       item.toLowerCase().includes(query.toLowerCase()) ||
@@ -31,26 +29,19 @@ const findBestMatchingItem = (items: string[], query: string): string | null => 
   );
   if (containsMatch) return containsMatch;
 
-  // Then try fuzzy matching
   const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
 
   let bestMatch: string | null = null;
-  let bestScore = 0.5; // Minimum threshold
+  let bestScore = 0.5;
 
   for (const item of items) {
     const itemWords = item.toLowerCase().split(/\s+/);
-
-    // Calculate word overlap score
     const matchingWords = queryWords.filter((qw) =>
       itemWords.some((cw) => getSimilarityScore(qw, cw) > 0.7)
     );
 
     const overlapScore = matchingWords.length / Math.max(queryWords.length, 1);
-
-    // Calculate full string similarity
     const fullSimilarity = getSimilarityScore(item.toLowerCase(), query.toLowerCase());
-
-    // Combined score (weighted towards overlap)
     const totalScore = overlapScore * 0.7 + fullSimilarity * 0.3;
 
     if (totalScore > bestScore) {
@@ -164,13 +155,29 @@ const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]
       (snapshot: DataSnapshot) => {
         const data = snapshot.val();
         if (!data) return resolve([]);
-        let questions = Object.values(data);
-        if (subject) {
-          questions = questions.filter((q: any) => q.subject?.toLowerCase() === subject.toLowerCase());
+
+        let questions: any[] = [];
+
+        // Iterate through subjects
+        for (const subjectKey in data) {
+          if (subject && subjectKey.toLowerCase() !== subject.toLowerCase()) continue;
+
+          // Iterate through chapters
+          for (const chapterKey in data[subjectKey]) {
+            if (chapter && chapterKey.toLowerCase() !== chapter.toLowerCase()) continue;
+
+            // Collect questions
+            for (const questionId in data[subjectKey][chapterKey]) {
+              const question = data[subjectKey][chapterKey][questionId];
+              questions.push({
+                ...question,
+                subject: subjectKey,
+                chapter: chapterKey,
+              });
+            }
+          }
         }
-        if (chapter) {
-          questions = questions.filter((q: any) => q.chapter?.toLowerCase() === chapter.toLowerCase());
-        }
+
         resolve(questions);
       },
       { onlyOnce: true }
@@ -180,12 +187,29 @@ const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]
 
 // Function to get unique chapters or subjects
 const getUniqueItems = async (type: 'chapters' | 'subjects', subject?: string): Promise<string[]> => {
-  const questions = await fetchQuestions(subject);
-  if (type === 'chapters') {
-    return [...new Set(questions.map((q: any) => q.chapter).filter((ch: any) => ch))].sort();
-  } else {
-    return [...new Set(questions.map((q: any) => q.subject).filter((s: any) => s))].sort();
-  }
+  const questionsRef = ref(db, 'questions');
+  return new Promise((resolve) => {
+    onValue(
+      questionsRef,
+      (snapshot: DataSnapshot) => {
+        const data = snapshot.val();
+        if (!data) return resolve([]);
+
+        if (type === 'subjects') {
+          const subjects = Object.keys(data).sort();
+          resolve(subjects);
+        } else {
+          let chapters: string[] = [];
+          for (const subjectKey in data) {
+            if (subject && subjectKey.toLowerCase() !== subject.toLowerCase()) continue;
+            chapters = chapters.concat(Object.keys(data[subjectKey])).sort();
+          }
+          resolve([...new Set(chapters)]);
+        }
+      },
+      { onlyOnce: true }
+    );
+  });
 };
 
 // Function to generate message with chapters or subjects list
@@ -227,7 +251,6 @@ const quizes = () => async (ctx: Context) => {
       const allQuestions = await fetchQuestions();
       const chapters = await getUniqueItems('chapters');
 
-      // Find the best matching chapter using fuzzy search
       const matchedChapter = findBestMatchingItem(chapters, chapterQuery);
 
       if (!matchedChapter) {
@@ -238,9 +261,7 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      const filteredByChapter = allQuestions.filter(
-        (q: any) => q.chapter?.trim().toLowerCase() === matchedChapter.toLowerCase()
-      );
+      const filteredByChapter = await fetchQuestions(undefined, matchedChapter);
 
       if (!filteredByChapter.length) {
         const { message } = await getItemsMessage('chapters');
@@ -250,7 +271,6 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      // If the matched chapter isn't an exact match, confirm with user
       if (matchedChapter.toLowerCase() !== chapterQuery.toLowerCase()) {
         await ctx.replyWithHTML(
           `🔍 Did you mean "<b>${matchedChapter}</b>"?\n\n` +
@@ -261,11 +281,6 @@ const quizes = () => async (ctx: Context) => {
 
       const shuffled = filteredByChapter.sort(() => 0.5 - Math.random());
       const selected = shuffled.slice(0, Math.min(count, filteredByChapter.length));
-
-      if (!selected.length) {
-        await ctx.reply(`No questions available for chapter "${matchedChapter}".`);
-        return;
-      }
 
       for (const question of selected) {
         const options = [
@@ -304,10 +319,7 @@ const quizes = () => async (ctx: Context) => {
     const count = subjectMatch[2] ? parseInt(subjectMatch[2], 10) : 1;
 
     try {
-      const allQuestions = await fetchQuestions(subjectQuery);
       const subjects = await getUniqueItems('subjects');
-
-      // Find the best matching subject using fuzzy search
       const matchedSubject = findBestMatchingItem(subjects, subjectQuery);
 
       if (!matchedSubject) {
@@ -318,9 +330,7 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      const filteredBySubject = allQuestions.filter(
-        (q: any) => q.subject?.trim().toLowerCase() === matchedSubject.toLowerCase()
-      );
+      const filteredBySubject = await fetchQuestions(matchedSubject);
 
       if (!filteredBySubject.length) {
         const { message } = await getItemsMessage('subjects');
@@ -330,7 +340,6 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      // If the matched subject isn't an exact match, confirm with user
       if (matchedSubject.toLowerCase() !== subjectQuery.toLowerCase()) {
         await ctx.replyWithHTML(
           `🔍 Did you mean "<b>${matchedSubject}</b>"?\n\n` +
@@ -341,11 +350,6 @@ const quizes = () => async (ctx: Context) => {
 
       const shuffled = filteredBySubject.sort(() => 0.5 - Math.random());
       const selected = shuffled.slice(0, Math.min(count, filteredBySubject.length));
-
-      if (!selected.length) {
-        await ctx.reply(`No questions available for subject "${matchedSubject}".`);
-        return;
-      }
 
       for (const question of selected) {
         const options = [
@@ -426,8 +430,8 @@ const quizes = () => async (ctx: Context) => {
 
   // Handle legacy /pyq, /b1, /c1, /p1 commands
   if (cmdMatch) {
-    const cmd = cmdMatch[1]; // pyq, pyqb, pyqc, pyqp, b1, c1, p1
-    const subjectCode = cmdMatch[2]; // b, c, p
+    const cmd = cmdMatch[1];
+    const subjectCode = cmdMatch[2];
     const count = cmdMatch[3] ? parseInt(cmdMatch[3].trim(), 10) : 1;
 
     const subjectMap: Record<string, string> = {
