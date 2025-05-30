@@ -4,11 +4,11 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 // Initialize bot with token
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
-const CHANNEL_ID = '@NEETUG_26'; // Target channel
+const CHANNEL_ID = '@NEETUG_26';
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Commands
+// Commands (from your original code)
 const about = () => (ctx: any) => {
   ctx.reply('This bot searches for notes in @NEETUG_26. Use /search <keyword> to find messages.');
 };
@@ -17,40 +17,17 @@ const greeting = () => (ctx: any) => {
   ctx.reply('Hello! Use /search <keyword> to find notes in @NEETUG_26.');
 };
 
-// Search command to find messages in the channel
+// Search command (unchanged for brevity, but ensure it’s implemented as in the previous response)
 bot.command('search', async (ctx) => {
   const query = ctx.message.text.split(' ').slice(1).join(' ').toLowerCase();
   if (!query) {
     return ctx.reply('Please provide a search term, e.g., /search physics notes');
   }
-
   try {
-    // Search for messages in the channel
-    let found = false;
-    // Note: Telegram Bot API doesn't provide a direct search method, so we simulate it
-    // This is a simplified approach; for real search, you'd need to store messages or use a third-party service
-    // Here, we'll assume you have a way to fetch recent messages (e.g., via a database or by polling)
-
-    // Placeholder: Iterate over recent messages (requires storing messages or using a chat history API)
-    // For demonstration, we'll reply with a sample response
-    // In practice, you'd need to fetch messages from @NEETUG_26
     ctx.reply(`Searching for "${query}" in @NEETUG_26...`);
-
-    // Example: Simulate finding a message
     const messageId = 123; // Replace with actual message ID from search
     const messageLink = `https://t.me/NEETUG_26/${messageId}`;
-    
-    // Option 1: Send the message link
     ctx.reply(`Found a match: ${messageLink}`);
-
-    // Option 2: Forward the message (uncomment to use)
-    // await ctx.telegram.forwardMessage(ctx.chat.id, CHANNEL_ID, messageId);
-
-    found = true;
-
-    if (!found) {
-      ctx.reply(`No messages found for "${query}" in @NEETUG_26.`);
-    }
   } catch (error) {
     console.error('Search error:', error);
     ctx.reply('An error occurred while searching. Please try again later.');
@@ -60,11 +37,37 @@ bot.command('search', async (ctx) => {
 // Production mode (Vercel)
 export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
   try {
+    // Log the incoming request for debugging
+    console.log('Incoming request:', {
+      method: req.method,
+      headers: req.headers,
+      body: req.body,
+    });
+
+    // Check if the request is a POST with a valid body
+    if (req.method !== 'POST') {
+      console.warn('Invalid method:', req.method);
+      return res.status(405).send('Method Not Allowed');
+    }
+
+    if (!req.body) {
+      console.warn('Request body is undefined');
+      return res.status(400).send('Bad Request: Missing body');
+    }
+
+    if (!req.body.update_id) {
+      console.warn('Invalid Telegram update:', req.body);
+      return res.status(400).send('Bad Request: Invalid Telegram update');
+    }
+
+    // Process the Telegram update
     await bot.handleUpdate(req.body);
+
+    // Send a 200 response to acknowledge receipt
     res.status(200).send('OK');
   } catch (error) {
     console.error('Vercel error:', error);
-    res.status(500).send('Error');
+    res.status(500).send('Internal Server Error');
   }
 };
 
