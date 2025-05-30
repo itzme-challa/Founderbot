@@ -302,12 +302,14 @@ const findSubjectForChapter = async (chapterQuery: string): Promise<string | nul
 const quizes = () => async (ctx: Context) => {
   debug('Triggered "quizes" handler');
 
-  if (!ctx.message || !('text' in ctx.message)) return;
+  if (!ctx.message || !('text' in ctx.message)) {
+    await ctx.reply('Please provide a valid command.');
+    return;
+  }
 
   const text = ctx.message.text.trim();
   const chapterMatch = text.match(/^\/chapter\s+(.+?)(?:\s+(\d+))?$/i);
   const subjectMatch = text.match(/^\/subject\s+(.+?)(?:\s+(\d+))?$/i);
-  const randomMatch = text.match(/^\/random(?:\s+(\d+))?$/i);
   const cmdMatch = text.match(/^\/(pyq(b|c|p)?|[bcp]1)(\s*\d+)?$/i);
 
   if (chapterMatch) {
@@ -383,7 +385,7 @@ const quizes = () => async (ctx: Context) => {
         );
       }
     } catch (err) {
-      debug('Error fetching questions:', err);
+      debug('Error fetching chapter questions:', err);
       await ctx.reply('Oops! Failed to load questions.');
     }
     return;
@@ -456,52 +458,7 @@ const quizes = () => async (ctx: Context) => {
         );
       }
     } catch (err) {
-      debug('Error fetching questions:', err);
-      await ctx.reply('Oops! Failed to load questions.');
-    }
-    return;
-  }
-
-  if (randomMatch) {
-    const count = randomMatch[1] ? parseInt(randomMatch[1], 10) : 1;
-
-    try {
-      const allQuestions = await fetchQuestions();
-
-      if (!allQuestions.length) {
-        await ctx.reply('No questions available.');
-        return;
-      }
-
-      const shuffled = allQuestions.sort(() => 0.5 - Math.random());
-      const selected = shuffled.slice(0, Math.min(count, allQuestions.length));
-
-      for (const question of selected) {
-        const options = [
-          question.options?.A || 'Option A',
-          question.options?.B || 'Option B',
-          question.options?.C || 'Option C',
-          question.options?.D || 'Option D',
-        ];
-        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
-
-        if (question.image) {
-          await ctx.replyWithPhoto({ url: question.image });
-        }
-
-        await ctx.sendPoll(
-          question.question || 'No question text',
-          options,
-          {
-            type: 'quiz',
-            correct_option_id: correctOptionIndex,
-            is_anonymous: false,
-            explanation: question.explanation || 'No explanation provided.',
-          } as any
-        );
-      }
-    } catch (err) {
-      debug('Error fetching questions:', err);
+      debug('Error fetching subject questions:', err);
       await ctx.reply('Oops! Failed to load questions.');
     }
     return;
@@ -521,12 +478,15 @@ const quizes = () => async (ctx: Context) => {
     let subject: string | null = null;
     let isMixed = false;
 
-    if (cmd === 'pyq') {
-      isMixed = true;
+    if (cmd === 'pyq' && !subjectCode) {
+      isMixed = true; // Random questions from all subjects
     } else if (subjectCode) {
       subject = subjectMap[subjectCode];
     } else if (['b1', 'c1'].includes(cmd)) {
       subject = subjectMap[cmd[0]];
+    } else {
+      await ctx.reply('Invalid command format. Use /pyq [count], /pyqb [count], /pyqc [count], /pyqp [count], /b1 [count], or /c1 [count].');
+      return;
     }
 
     try {
@@ -540,6 +500,11 @@ const quizes = () => async (ctx: Context) => {
       const shuffled = filtered.sort(() => 0.5 - Math.random());
       const selected = shuffled.slice(0, Math.min(count, filtered.length));
 
+      if (!selected.length) {
+        await ctx.reply(`No questions available for ${subject || 'the selected subjects'}.`);
+        return;
+      }
+
       for (const question of selected) {
         const options = [
           question.options?.A || 'Option A',
@@ -549,26 +514,54 @@ const quizes = () => async (ctx: Context) => {
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
-        if (question.image) {
-          await ctx.replyWithPhoto({ url: question.image });
+        if (!question.correct_option || correctOptionIndex === -1) {
+          debug('Invalid correct_option for question:', question);
+          continue; // Skip questions with invalid correct_option
         }
 
-        await ctx.sendPoll(
-          question.question || 'No question text',
-          options,
-          {
-            type: 'quiz',
-            correct_option_id: correctOptionIndex,
-            is_anonymous: false,
-            explanation: question.explanation || 'No explanation provided.',
-          } as any
-        );
+        if (question.image) {
+          try {
+            await ctx.replyWithPhoto({ url: question.image });
+          } catch (photoErr) {
+            debug('Error sending photo:', photoErr);
+          }
+        }
+
+        try {
+          await ctx.sendPoll(
+            question.question || 'No question text',
+            options,
+            {
+              type: 'quiz',
+              correct_option_id: correctOptionIndex,
+              is_anonymous: false,
+              explanation: question.explanation || 'No explanation provided.',
+            } as any
+          );
+        } catch (pollErr) {
+          debug('Error sending poll:', pollErr);
+          continue; // Skip to next question if poll fails
+        }
+      }
+
+      if (selected.length === 0) {
+        await ctx.reply('No valid questions could be sent. Please try again.');
       }
     } catch (err) {
-      debug('Error fetching questions:', err);
+      debug('Error fetching questions for command:', cmd, err);
       await ctx.reply('Oops! Failed to load questions.');
     }
+    return;
   }
+
+  await ctx.reply(
+    'Invalid command. Use:\n' +
+    '- /chapter [name] [count] (e.g., /chapter Living World 2)\n' +
+    '- /subject [name] [count] (e.g., /subject Biology 2)\n' +
+    '- /pyq [count] (e.g., /pyq 2 for random questions)\n' +
+    '- /pyqb [count], /pyqc [count], /pyqp [count]\n' +
+    '- /b1 [count], /c1 [count]'
+  );
 };
 
 export { quizes };
