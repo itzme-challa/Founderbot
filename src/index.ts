@@ -2,7 +2,7 @@ import { Telegraf, Context } from 'telegraf';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { getAllChatIds, saveChatId, fetchChatIdsFromSheet } from './utils/chatStore';
 import { db, ref, push, set, onValue } from './utils/firebase';
-import { DataSnapshot } from 'firebase/database'; // Import DataSnapshot directly
+import { DataSnapshot } from 'firebase/database';
 import { saveToSheet } from './utils/saveToSheet';
 import { about } from './commands';
 import { quizes } from './text';
@@ -166,7 +166,7 @@ bot.action('refresh_users', async (ctx) => {
 bot.command('broadcast', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized to use this command.');
 
-  const msg = ctx.message.text?.split(' ').slice(1).join(' ');
+  const msg = ctx.message?.text?.split(' ').slice(1).join(' ');
   if (!msg) return ctx.reply('Usage:\n/broadcast Your message here');
 
   let chatIds: number[] = [];
@@ -199,9 +199,9 @@ bot.command('broadcast', async (ctx) => {
 bot.command('reply', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized to use this command.');
 
-  const parts = ctx.message.text?.split(' ');
+  const parts = ctx.message?.text?.split(' ');
   if (!parts || parts.length < 3) {
-    return ctx.reply('Usage:\n/reply <chat_id> <message>');
+    return ctx.reply('Usage:\n/reply <chat_id> [message]');
   }
 
   const chatIdStr = parts[1].trim();
@@ -226,35 +226,57 @@ bot.command('reply', async (ctx) => {
 });
 
 // Handle /add<subject> or /add<Subject><Chapter> commands
-bot.command(/add[A-Za-z]+([A-Za-z_]+)?/, async (ctx) => {
+bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) {
     return ctx.reply('You are not authorized to use this command.');
   }
 
-  const command = ctx.message.text?.split(' ')[0].substring(1); // Remove leading '/'
-  const countStr = ctx.message.text?.split(' ')[1];
-  const count = parseInt(countStr, 10);
+  const command = ctx.message?.text?.split(' ')[0].substring(1); // Remove leading '/'
+  const countStr = ctx.message?.text?.split(' ')[1];
+  const count = parseInt(countStr || '', 10);
 
   if (!countStr || isNaN(count) || count <= 0) {
-    return ctx.reply('Please specify a valid number of questions.\nExample: /addBiology 10');
+    return ctx.reply('Please specify a valid number of questions.\nExample: /addBiology 10 or /addBiology_Living_World 10');
   }
 
   let subject = '';
-  let chapter = 'Random';
+  let chapter = '';
 
   if (command.includes('_')) {
-    const [subj, chp] = command.split('_');
-    subject = subj.replace('add', '').replace(/_/g, ' ');
-    chapter = chp.replace(/_/g, ' ');
+    // Handle /add<Subject>_<Chapter> (e.g., /addBiology_Living_World)
+    const parts = command.split('_');
+    subject = parts[0].replace(/^add/, '');
+    chapter = parts.slice(1).join(' ').replace(/_/g, ' '); // Convert underscores to spaces
+    // Store submission and proceed directly to question collection
+    pendingSubmissions[ctx.from.id] = {
+      subject,
+      chapter,
+      count,
+      questions: [],
+      expectingImageFor: undefined,
+      awaitingChapterSelection: false,
+    };
+
+    await ctx.reply(
+      `Selected chapter: *${chapter}* for *${subject}*. ` +
+      `Please share ${count} questions as Telegram quiz polls. ` +
+      `Each poll should have the question, 4 options, a correct answer, and an explanation. ` +
+      `After sending a poll, you can optionally send an image URL for it.`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
   } else {
-    subject = command.replace('add', '').replace(/_/g, ' ');
+    // Handle /add<Subject> (e.g., /addBiology)
+    subject = command.replace(/^add/, '');
+    chapter = 'Random'; // Default chapter if none specified
   }
 
-  // Fetch chapters for the subject
+  // Fetch chapters for the subject only if no chapter is specified
   const chapters = await fetchChapters(subject);
   if (chapters.length === 0) {
     return ctx.reply(
-      `❌ Failed to fetch chapters for ${subject}. Please specify a chapter manually using /add${subject}_<chapter> <count>`
+      `❌ No chapters found for ${subject}. Please specify a chapter manually using /add${subject}_<chapter> <count>\n` +
+      `Example: /add${subject}_Living_World 10`
     );
   }
 
