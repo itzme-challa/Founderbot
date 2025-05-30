@@ -8,6 +8,13 @@ const CHANNEL_ID = '@NEETUG_26';
 
 const bot = new Telegraf(BOT_TOKEN);
 
+// Simulated message database (replace with actual database or API call)
+const messageDatabase = [
+  { id: 123, text: 'Physics notes on mechanics', keywords: ['physics', 'mechanics', 'notes'] },
+  { id: 124, text: 'Chemistry organic notes', keywords: ['chemistry', 'organic', 'notes'] },
+  // Add more messages as needed
+];
+
 // Commands
 bot.command('about', (ctx) => {
   ctx.reply('This bot searches for notes in @NEETUG_26. Use /search <keyword> to find messages.');
@@ -19,20 +26,35 @@ bot.command('search', async (ctx) => {
   if (!query) {
     return ctx.reply('Please provide a search term, e.g., /search physics notes');
   }
+
   try {
     ctx.reply(`Searching for "${query}" in @NEETUG_26...`);
-    const messageId = 123; // Replace with actual message ID from search
-    const messageLink = `https://t.me/NEETUG_26/${messageId}`;
-    ctx.reply(`Found a match: ${messageLink}`);
+
+    // Simulated search in message database
+    const results = messageDatabase.filter((msg) =>
+      msg.keywords.some((keyword) => keyword.includes(query))
+    );
+
+    if (results.length === 0) {
+      return ctx.reply('No matches found. Try a different keyword.');
+    }
+
+    // Forward the first matching message
+    const messageId = results[0].id;
+    await ctx.telegram.forwardMessage(
+      ctx.chat.id,
+      CHANNEL_ID,
+      messageId
+    );
+    ctx.reply(`Forwarded a matching message from @NEETUG_26.`);
   } catch (error) {
     console.error('Search error:', error);
     ctx.reply('An error occurred while searching. Please try again later.');
   }
 });
 
-// Handle non-command text messages only
+// Handle non-command text messages
 bot.on('text', (ctx) => {
-  // Only respond to messages that are not commands
   if (!ctx.message.text.startsWith('/')) {
     ctx.reply('Hello! Use /search <keyword> to find notes in @NEETUG_26.');
   }
@@ -40,7 +62,9 @@ bot.on('text', (ctx) => {
 
 // Webhook setup for production
 if (ENVIRONMENT === 'production' && WEBHOOK_URL) {
-  bot.telegram.setWebhook(`${WEBHOOK_URL}/api/bot`);
+  bot.telegram.setWebhook(`${WEBHOOK_URL}/api/bot`)
+    .then(() => console.log('Webhook set successfully'))
+    .catch((err) => console.error('Failed to set webhook:', err));
 }
 
 // Export the Vercel handler function
