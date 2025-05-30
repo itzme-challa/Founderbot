@@ -19,9 +19,11 @@ const getSimilarityScore = (a: string, b: string): number => {
 const findBestMatchingItem = (items: string[], query: string): string | null => {
   if (!query || !items.length) return null;
 
+  // First try exact match (case insensitive)
   const exactMatch = items.find((item) => item.toLowerCase() === query.toLowerCase());
   if (exactMatch) return exactMatch;
 
+  // Then try contains match
   const containsMatch = items.find(
     (item) =>
       item.toLowerCase().includes(query.toLowerCase()) ||
@@ -29,19 +31,26 @@ const findBestMatchingItem = (items: string[], query: string): string | null => 
   );
   if (containsMatch) return containsMatch;
 
+  // Then try fuzzy matching
   const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
 
   let bestMatch: string | null = null;
-  let bestScore = 0.5;
+  let bestScore = 0.5; // Minimum threshold
 
   for (const item of items) {
     const itemWords = item.toLowerCase().split(/\s+/);
+
+    // Calculate word overlap score
     const matchingWords = queryWords.filter((qw) =>
       itemWords.some((cw) => getSimilarityScore(qw, cw) > 0.7)
     );
 
     const overlapScore = matchingWords.length / Math.max(queryWords.length, 1);
+
+    // Calculate full string similarity
     const fullSimilarity = getSimilarityScore(item.toLowerCase(), query.toLowerCase());
+
+    // Combined score (weighted towards overlap)
     const totalScore = overlapScore * 0.7 + fullSimilarity * 0.3;
 
     if (totalScore > bestScore) {
@@ -116,8 +125,8 @@ const createTelegraphPage = async (title: string, items: string[]) => {
         tag: 'code',
         children: [
           title.includes('Chapters')
-            ? '/chapter living world 2'
-            : '/subject biology 2',
+            ? '/chapter Living World 2'
+            : '/subject Biology 2',
         ],
       },
     ];
@@ -149,66 +158,103 @@ const createTelegraphPage = async (title: string, items: string[]) => {
 // Function to fetch questions from Firebase
 const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]> => {
   return new Promise((resolve) => {
-    const questionsRef = ref(db, 'questions');
+    let path = 'questions';
+    if (subject && chapter) {
+      path = `questions/${subject.toLowerCase()}/${chapter.toLowerCase()}`;
+    } else if (subject) {
+      path = `questions/${subject.toLowerCase()}`;
+    }
+    const questionsRef = ref(db, path);
     onValue(
       questionsRef,
       (snapshot: DataSnapshot) => {
+        const questions: any[] = [];
         const data = snapshot.val();
-        if (!data) return resolve([]);
+        if (!data) {
+          resolve(questions);
+          return;
+        }
 
-        let questions: any[] = [];
-
-        // Iterate through subjects
-        for (const subjectKey in data) {
-          if (subject && subjectKey.toLowerCase() !== subject.toLowerCase()) continue;
-
-          // Iterate through chapters
-          for (const chapterKey in data[subjectKey]) {
-            if (chapter && chapterKey.toLowerCase() !== chapter.toLowerCase()) continue;
-
-            // Collect questions
-            for (const questionId in data[subjectKey][chapterKey]) {
-              const question = data[subjectKey][chapterKey][questionId];
+        if (subject && chapter) {
+          // Specific subject and chapter
+          for (const questionId in data) {
+            questions.push({
+              ...data[questionId],
+              subject,
+              chapter,
+            });
+          }
+        } else if (subject) {
+          // All chapters under a subject
+          for (const chapterKey in data) {
+            const chapterQuestions = data[chapterKey];
+            for (const questionId in chapterQuestions) {
               questions.push({
-                ...question,
-                subject: subjectKey,
+                ...chapterQuestions[questionId],
+                subject,
                 chapter: chapterKey,
               });
             }
           }
+        } else {
+          // All questions
+          for (const subjectKey in data) {
+            for (const chapterKey in data[subjectKey]) {
+              const chapterQuestions = data[subjectKey][chapterKey];
+              for (const questionId in chapterQuestions) {
+                questions.push({
+                  ...chapterQuestions[questionId],
+                  subject: subjectKey,
+                  chapter: chapterKey,
+                });
+              }
+            }
+          }
         }
-
         resolve(questions);
       },
-      { onlyOnce: true }
+      (error: Error) => {
+        debug('Error fetching questions:', error);
+        resolve([]);
+      }
     );
   });
 };
 
 // Function to get unique chapters or subjects
 const getUniqueItems = async (type: 'chapters' | 'subjects', subject?: string): Promise<string[]> => {
-  const questionsRef = ref(db, 'questions');
   return new Promise((resolve) => {
-    onValue(
-      questionsRef,
-      (snapshot: DataSnapshot) => {
-        const data = snapshot.val();
-        if (!data) return resolve([]);
-
-        if (type === 'subjects') {
-          const subjects = Object.keys(data).sort();
-          resolve(subjects);
-        } else {
-          let chapters: string[] = [];
-          for (const subjectKey in data) {
-            if (subject && subjectKey.toLowerCase() !== subject.toLowerCase()) continue;
-            chapters = chapters.concat(Object.keys(data[subjectKey])).sort();
-          }
-          resolve([...new Set(chapters)]);
+    if (type === 'subjects') {
+      const subjectsRef = ref(db, 'questions');
+      onValue(
+        subjectsRef,
+        (snapshot: DataSnapshot) => {
+          const data = snapshot.val();
+          const subjects = data ? Object.keys(data) : [];
+          resolve(subjects.sort());
+        },
+        (error: Error) => {
+          debug('Error fetching subjects:', error);
+          resolve([]);
         }
-      },
-      { onlyOnce: true }
-    );
+      );
+    } else if (type === 'chapters' && subject) {
+      const chaptersRef = ref(db, `questions/${subject.toLowerCase()}`);
+      onValue(
+        chaptersRef,
+        (snapshot: DataSnapshot) => {
+          const data = snapshot.val();
+          const chapters = data ? Object.keys(data) : [];
+          resolve(chapters.sort());
+        },
+        (error: Error) => {
+          debug('Error fetching chapters:', error);
+          resolve([]);
+        }
+      );
+    } else {
+      resolve([]);
+    }
   });
 };
 
@@ -222,7 +268,7 @@ const getItemsMessage = async (type: 'chapters' | 'subjects', subject?: string) 
       message: `📚 <b>${title}</b>\n\n` +
         `View all ${type} here: <a href="${telegraphUrl}">${telegraphUrl}</a>\n\n` +
         `Then use: <code>/${type === 'chapters' ? 'chapter' : 'subject'} [name] [count]</code>\n` +
-        `Example: <code>/${type === 'chapters' ? 'chapter living world 2' : 'subject biology 2'}</code>`,
+        `Example: <code>/${type === 'chapters' ? 'chapter Living World 2' : 'subject Biology 2'}</code>`,
       items,
     };
   } catch (err) {
@@ -249,8 +295,9 @@ const quizes = () => async (ctx: Context) => {
 
     try {
       const allQuestions = await fetchQuestions();
-      const chapters = await getUniqueItems('chapters');
+      const chapters = [...new Set(allQuestions.map((q: any) => q.chapter))].sort();
 
+      // Find the best matching chapter using fuzzy search
       const matchedChapter = findBestMatchingItem(chapters, chapterQuery);
 
       if (!matchedChapter) {
@@ -261,16 +308,27 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      const filteredByChapter = await fetchQuestions(undefined, matchedChapter);
+      // Find the subject for this chapter
+      const questionWithChapter = allQuestions.find(
+        (q: any) => q.chapter?.toLowerCase() === matchedChapter.toLowerCase()
+      );
+      if (!questionWithChapter) {
+        await ctx.reply(`No questions found for chapter "${matchedChapter}".`);
+        return;
+      }
+      const subject = questionWithChapter.subject;
+
+      const filteredByChapter = await fetchQuestions(subject, matchedChapter);
 
       if (!filteredByChapter.length) {
-        const { message } = await getItemsMessage('chapters');
+        const { message } = await getItemsMessage('chapters', subject);
         await ctx.replyWithHTML(
           `❌ No questions found for chapter "<b>${matchedChapter}</b>"\n\n${message}`
         );
         return;
       }
 
+      // If the matched chapter isn't an exact match, confirm with user
       if (matchedChapter.toLowerCase() !== chapterQuery.toLowerCase()) {
         await ctx.replyWithHTML(
           `🔍 Did you mean "<b>${matchedChapter}</b>"?\n\n` +
@@ -282,12 +340,17 @@ const quizes = () => async (ctx: Context) => {
       const shuffled = filteredByChapter.sort(() => 0.5 - Math.random());
       const selected = shuffled.slice(0, Math.min(count, filteredByChapter.length));
 
+      if (!selected.length) {
+        await ctx.reply(`No questions available for chapter "${matchedChapter}".`);
+        return;
+      }
+
       for (const question of selected) {
         const options = [
-          question.options.A,
-          question.options.B,
-          question.options.C,
-          question.options.D,
+          question.options?.A || 'Option A',
+          question.options?.B || 'Option B',
+          question.options?.C || 'Option C',
+          question.options?.D || 'Option D',
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
@@ -296,7 +359,7 @@ const quizes = () => async (ctx: Context) => {
         }
 
         await ctx.sendPoll(
-          question.question,
+          question.question || 'No question text',
           options,
           {
             type: 'quiz',
@@ -320,6 +383,8 @@ const quizes = () => async (ctx: Context) => {
 
     try {
       const subjects = await getUniqueItems('subjects');
+
+      // Find the best matching subject using fuzzy search
       const matchedSubject = findBestMatchingItem(subjects, subjectQuery);
 
       if (!matchedSubject) {
@@ -340,6 +405,7 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
+      // If the matched subject isn't an exact match, confirm with user
       if (matchedSubject.toLowerCase() !== subjectQuery.toLowerCase()) {
         await ctx.replyWithHTML(
           `🔍 Did you mean "<b>${matchedSubject}</b>"?\n\n` +
@@ -351,12 +417,17 @@ const quizes = () => async (ctx: Context) => {
       const shuffled = filteredBySubject.sort(() => 0.5 - Math.random());
       const selected = shuffled.slice(0, Math.min(count, filteredBySubject.length));
 
+      if (!selected.length) {
+        await ctx.reply(`No questions available for subject "${matchedSubject}".`);
+        return;
+      }
+
       for (const question of selected) {
         const options = [
-          question.options.A,
-          question.options.B,
-          question.options.C,
-          question.options.D,
+          question.options?.A || 'Option A',
+          question.options?.B || 'Option B',
+          question.options?.C || 'Option C',
+          question.options?.D || 'Option D',
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
@@ -365,7 +436,7 @@ const quizes = () => async (ctx: Context) => {
         }
 
         await ctx.sendPoll(
-          question.question,
+          question.question || 'No question text',
           options,
           {
             type: 'quiz',
@@ -399,10 +470,10 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options.A,
-          question.options.B,
-          question.options.C,
-          question.options.D,
+          question.options?.A || 'Option A',
+          question.options?.B || 'Option B',
+          question.options?.C || 'Option C',
+          question.options?.D || 'Option D',
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
@@ -411,7 +482,7 @@ const quizes = () => async (ctx: Context) => {
         }
 
         await ctx.sendPoll(
-          question.question,
+          question.question || 'No question text',
           options,
           {
             type: 'quiz',
@@ -430,8 +501,8 @@ const quizes = () => async (ctx: Context) => {
 
   // Handle legacy /pyq, /b1, /c1, /p1 commands
   if (cmdMatch) {
-    const cmd = cmdMatch[1];
-    const subjectCode = cmdMatch[2];
+    const cmd = cmdMatch[1]; // pyq, pyqb, pyqc, pyqp, b1, c1, p1
+    const subjectCode = cmdMatch[2]; // b, c, p
     const count = cmdMatch[3] ? parseInt(cmdMatch[3].trim(), 10) : 1;
 
     const subjectMap: Record<string, string> = {
@@ -464,10 +535,10 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options.A,
-          question.options.B,
-          question.options.C,
-          question.options.D,
+          question.options?.A || 'Option A',
+          question.options?.B || 'Option B',
+          question.options?.C || 'Option C',
+          question.options?.D || 'Option D',
         ];
         const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
@@ -476,7 +547,7 @@ const quizes = () => async (ctx: Context) => {
         }
 
         await ctx.sendPoll(
-          question.question,
+          question.question || 'No question text',
           options,
           {
             type: 'quiz',
