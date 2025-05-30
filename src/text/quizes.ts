@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import createDebug from 'debug';
 import { distance } from 'fastest-levenshtein';
 import { db, ref, onValue } from '../utils/firebase';
-import { DataSnapshot } from 'firebase/database';
+import { DataSnapshot } from 'firebase/database'; // Import DataSnapshot directly
 
 const debug = createDebug('bot:quizes');
 
@@ -125,8 +125,8 @@ const createTelegraphPage = async (title: string, items: string[]) => {
         tag: 'code',
         children: [
           title.includes('Chapters')
-            ? '/chapter Living World 2'
-            : '/subject Biology 2',
+            ? '/chapter living world 2'
+            : '/subject biology 2',
         ],
       },
     ];
@@ -173,14 +173,7 @@ const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]
         }
         resolve(questions);
       },
-      {
-        onlyOnce: true,
-        // Handle potential errors
-        errorCallback: (error) => {
-          debug('Error fetching questions:', error);
-          resolve([]);
-        },
-      }
+      { onlyOnce: true }
     );
   });
 };
@@ -205,7 +198,7 @@ const getItemsMessage = async (type: 'chapters' | 'subjects', subject?: string) 
       message: `📚 <b>${title}</b>\n\n` +
         `View all ${type} here: <a href="${telegraphUrl}">${telegraphUrl}</a>\n\n` +
         `Then use: <code>/${type === 'chapters' ? 'chapter' : 'subject'} [name] [count]</code>\n` +
-        `Example: <code>/${type === 'chapters' ? 'chapter Living World 2' : 'subject Biology 2'}</code>`,
+        `Example: <code>/${type === 'chapters' ? 'chapter living world 2' : 'subject biology 2'}</code>`,
       items,
     };
   } catch (err) {
@@ -276,19 +269,19 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options?.A || 'Option A',
-          question.options?.B || 'Option B',
-          question.options?.C || 'Option C',
-          question.options?.D || 'Option D',
+          question.options.A,
+          question.options.B,
+          question.options.C,
+          question.options.D,
         ];
-        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option || 'A');
+        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
         if (question.image) {
           await ctx.replyWithPhoto({ url: question.image });
         }
 
         await ctx.sendPoll(
-          question.question || 'No question text',
+          question.question,
           options,
           {
             type: 'quiz',
@@ -356,19 +349,19 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options?.A || 'Option A',
-          question.options?.B || 'Option B',
-          question.options?.C || 'Option C',
-          question.options?.D || 'Option D',
+          question.options.A,
+          question.options.B,
+          question.options.C,
+          question.options.D,
         ];
-        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option || 'A');
+        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
         if (question.image) {
           await ctx.replyWithPhoto({ url: question.image });
         }
 
         await ctx.sendPoll(
-          question.question || 'No question text',
+          question.question,
           options,
           {
             type: 'quiz',
@@ -402,19 +395,19 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options?.A || 'Option A',
-          question.options?.B || 'Option B',
-          question.options?.C || 'Option C',
-          question.options?.D || 'Option D',
+          question.options.A,
+          question.options.B,
+          question.options.C,
+          question.options.D,
         ];
-        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option || 'A');
+        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
         if (question.image) {
           await ctx.replyWithPhoto({ url: question.image });
         }
 
         await ctx.sendPoll(
-          question.question || 'No question text',
+          question.question,
           options,
           {
             type: 'quiz',
@@ -438,9 +431,9 @@ const quizes = () => async (ctx: Context) => {
     const count = cmdMatch[3] ? parseInt(cmdMatch[3].trim(), 10) : 1;
 
     const subjectMap: Record<string, string> = {
-      b: 'Biology',
-      c: 'Chemistry',
-      p: 'Physics',
+      b: 'biology',
+      c: 'chemistry',
+      p: 'physics',
     };
 
     let subject: string | null = null;
@@ -467,19 +460,19 @@ const quizes = () => async (ctx: Context) => {
 
       for (const question of selected) {
         const options = [
-          question.options?.A || 'Option A',
-          question.options?.B || 'Option B',
-          question.options?.C || 'Option C',
-          question.options?.D || 'Option D',
+          question.options.A,
+          question.options.B,
+          question.options.C,
+          question.options.D,
         ];
-        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option || 'A');
+        const correctOptionIndex = ['A', 'B', 'C', 'D'].indexOf(question.correct_option);
 
         if (question.image) {
           await ctx.replyWithPhoto({ url: question.image });
         }
 
         await ctx.sendPoll(
-          question.question || 'No question text',
+          question.question,
           options,
           {
             type: 'quiz',
