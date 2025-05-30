@@ -1,7 +1,8 @@
 import { Telegraf, Context } from 'telegraf';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { getAllChatIds, saveChatId, fetchChatIdsFromSheet } from './utils/chatStore';
-import { db, ref, push, set, onValue, DataSnapshot } from './utils/firebase';
+import { db, ref, push, set, onValue } from './utils/firebase';
+import { DataSnapshot } from 'firebase/database'; // Import DataSnapshot directly
 import { saveToSheet } from './utils/saveToSheet';
 import { about } from './commands';
 import { quizes } from './text';
@@ -9,7 +10,6 @@ import { greeting } from './text';
 import { development, production } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { quote } from './commands/quotes';
-import { playquiz, handleQuizActions } from './playquiz'; // Assuming playquiz.ts exists
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
@@ -109,7 +109,6 @@ async function fetchChapters(subject: string): Promise<string[]> {
 // --- COMMANDS ---
 bot.command('about', about());
 bot.command('quote', quote());
-bot.command('quiz', playquiz()); // Added back for consistency
 
 // New command to show user count from Google Sheets
 bot.command('users', async (ctx) => {
@@ -286,9 +285,6 @@ bot.start(async (ctx) => {
     await greeting()(ctx);
   }
 });
-
-// Handle button clicks (quiz)
-bot.on('callback_query', handleQuizActions());
 
 // --- MESSAGE HANDLER ---
 bot.on('message', async (ctx) => {
