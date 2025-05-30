@@ -1,22 +1,21 @@
 import { Telegraf } from 'telegraf';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Initialize bot with token
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
-const CHANNEL_ID = '@NEETUG_26';
 const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
+const CHANNEL_ID = '@NEETUG_26';
 
 const bot = new Telegraf(BOT_TOKEN);
 
 // Commands
-const about = () => (ctx: any) => {
+bot.command('about', (ctx) => {
   ctx.reply('This bot searches for notes in @NEETUG_26. Use /search <keyword> to find messages.');
-};
+});
 
-const greeting = () => (ctx: any) => {
+bot.on('message', (ctx) => {
   ctx.reply('Hello! Use /search <keyword> to find notes in @NEETUG_26.');
-};
+});
 
 // Search command
 bot.command('search', async (ctx) => {
@@ -35,59 +34,43 @@ bot.command('search', async (ctx) => {
   }
 });
 
-// Register commands
-bot.command('about', about());
-bot.on('message', greeting());
-
 // Webhook setup for production
 if (ENVIRONMENT === 'production' && WEBHOOK_URL) {
   bot.telegram.setWebhook(`${WEBHOOK_URL}/api/bot`);
 }
 
-// Production mode (Vercel)
+// Export the Vercel handler
 export default async (req: VercelRequest, res: VercelResponse) => {
   try {
-    // Handle GET requests (like health checks or favicon)
+    // Handle GET requests (health checks)
     if (req.method === 'GET') {
-      if (req.url === '/api/bot') {
-        return res.status(200).json({
-          status: 'ok',
-          message: 'Telegram bot webhook is ready',
-          environment: ENVIRONMENT,
-        });
-      }
-      return res.status(200).send('Telegram bot is running');
+      return res.status(200).json({
+        status: 'ok',
+        message: 'Telegram bot is running',
+        environment: ENVIRONMENT,
+      });
     }
 
-    // Check if the request is a POST with a valid body
+    // Only accept POST requests
     if (req.method !== 'POST') {
       return res.status(405).send('Method Not Allowed');
     }
 
-    if (!req.body) {
-      return res.status(400).send('Bad Request: Missing body');
-    }
-
-    // Process the Telegram update
+    // Process Telegram update
     await bot.handleUpdate(req.body);
-
-    // Send a 200 response to acknowledge receipt
-    res.status(200).send('OK');
+    return res.status(200).send('OK');
   } catch (error) {
     console.error('Error:', error);
-    res.status(500).send('Internal Server Error');
+    return res.status(500).send('Internal Server Error');
   }
 };
 
 // Development mode
 if (ENVIRONMENT !== 'production') {
-  bot.launch().then(() => {
-    console.log('Bot started in development mode');
-  }).catch((err) => {
-    console.error('Failed to start bot:', err);
-  });
+  bot.launch()
+    .then(() => console.log('Bot started in development mode'))
+    .catch(err => console.error('Failed to start bot:', err));
 
-  // Enable graceful stop
   process.once('SIGINT', () => bot.stop('SIGINT'));
   process.once('SIGTERM', () => bot.stop('SIGTERM'));
 }
