@@ -1,11 +1,16 @@
 {
   "version": 2,
-  "public": true,
-  "rewrites": [
+  "builds": [
     {
-      "source": "/(.*)",
-      "destination": "api/index.ts"
+      "src": "api/index.ts",
+      "use": "@vercel/node"
     }
   ],
-  "redirects": [{ "source": "/", "destination": "/api", "permanent": false }]
+  "routes": [
+    {
+      "src": "/api/bot",
+      "dest": "/api/index",
+      "methods": ["GET", "POST"]
+    }
+  ]
 }
