@@ -18,39 +18,28 @@ const getSimilarityScore = (a: string, b: string): number => {
 // Function to find best matching chapter or subject using fuzzy search
 const findBestMatchingItem = (items: string[], query: string): string | null => {
   if (!query || !items.length) return null;
-
-  // First try exact match (case insensitive)
-  const exactMatch = items.find((item) => item.toLowerCase() === query.toLowerCase());
+  query = query.toLowerCase();
+  const exactMatch = items.find((item) => item.toLowerCase() === query);
   if (exactMatch) return exactMatch;
 
-  // Then try contains match
   const containsMatch = items.find(
     (item) =>
-      item.toLowerCase().includes(query.toLowerCase()) ||
-      query.toLowerCase().includes(item.toLowerCase())
+      item.toLowerCase().includes(query) ||
+      query.includes(item.toLowerCase())
   );
   if (containsMatch) return containsMatch;
 
-  // Then try fuzzy matching
-  const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-
+  const queryWords = query.split(/\s+/).filter((w) => w.length > 2);
   let bestMatch: string | null = null;
-  let bestScore = 0.5; // Minimum threshold
+  let bestScore = 0.5;
 
   for (const item of items) {
     const itemWords = item.toLowerCase().split(/\s+/);
-
-    // Calculate word overlap score
     const matchingWords = queryWords.filter((qw) =>
       itemWords.some((cw) => getSimilarityScore(qw, cw) > 0.7)
     );
-
     const overlapScore = matchingWords.length / Math.max(queryWords.length, 1);
-
-    // Calculate full string similarity
-    const fullSimilarity = getSimilarityScore(item.toLowerCase(), query.toLowerCase());
-
-    // Combined score (weighted towards overlap)
+    const fullSimilarity = getSimilarityScore(item.toLowerCase(), query);
     const totalScore = overlapScore * 0.7 + fullSimilarity * 0.3;
 
     if (totalScore > bestScore) {
@@ -164,19 +153,21 @@ const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]
     } else if (subject) {
       path = `questions/${subject.toLowerCase()}`;
     }
+    debug('Fetching questions from path:', path);
     const questionsRef = ref(db, path);
     onValue(
       questionsRef,
       (snapshot: DataSnapshot) => {
         const questions: any[] = [];
         const data = snapshot.val();
+        debug('Fetched data:', data ? Object.keys(data).length : 'null');
         if (!data) {
+          debug('No data found at path:', path);
           resolve(questions);
           return;
         }
 
         if (subject && chapter) {
-          // Specific subject and chapter
           for (const questionId in data) {
             questions.push({
               ...data[questionId],
@@ -185,7 +176,6 @@ const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]
             });
           }
         } else if (subject) {
-          // All chapters under a subject
           for (const chapterKey in data) {
             const chapterQuestions = data[chapterKey];
             for (const questionId in chapterQuestions) {
@@ -197,7 +187,6 @@ const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]
             }
           }
         } else {
-          // All questions
           for (const subjectKey in data) {
             for (const chapterKey in data[subjectKey]) {
               const chapterQuestions = data[subjectKey][chapterKey];
@@ -211,10 +200,11 @@ const fetchQuestions = async (subject?: string, chapter?: string): Promise<any[]
             }
           }
         }
+        debug('Returning questions:', questions.length);
         resolve(questions);
       },
       (error: Error) => {
-        debug('Error fetching questions:', error);
+        debug('Firebase error:', error.message);
         resolve([]);
       }
     );
@@ -231,10 +221,11 @@ const getUniqueItems = async (type: 'chapters' | 'subjects', subject?: string): 
         (snapshot: DataSnapshot) => {
           const data = snapshot.val();
           const subjects = data ? Object.keys(data) : [];
+          debug('Fetched subjects:', subjects);
           resolve(subjects.sort());
         },
         (error: Error) => {
-          debug('Error fetching subjects:', error);
+          debug('Error fetching subjects:', error.message);
           resolve([]);
         }
       );
@@ -245,10 +236,11 @@ const getUniqueItems = async (type: 'chapters' | 'subjects', subject?: string): 
         (snapshot: DataSnapshot) => {
           const data = snapshot.val();
           const chapters = data ? Object.keys(data) : [];
+          debug('Fetched chapters for', subject, ':', chapters);
           resolve(chapters.sort());
         },
         (error: Error) => {
-          debug('Error fetching chapters:', error);
+          debug('Error fetching chapters:', error.message);
           resolve([]);
         }
       );
@@ -277,27 +269,53 @@ const getItemsMessage = async (type: 'chapters' | 'subjects', subject?: string) 
   }
 };
 
+// Function to find subject for a chapter
+const findSubjectForChapter = async (chapterQuery: string): Promise<string | null> => {
+  return new Promise((resolve) => {
+    const questionsRef = ref(db, 'questions');
+    onValue(
+      questionsRef,
+      (snapshot: DataSnapshot) => {
+        const data = snapshot.val();
+        if (!data) {
+          resolve(null);
+          return;
+        }
+        for (const subjectKey in data) {
+          for (const chapterKey in data[subjectKey]) {
+            if (chapterKey.toLowerCase() === chapterQuery.toLowerCase()) {
+              resolve(subjectKey);
+              return;
+            }
+          }
+        }
+        resolve(null);
+      },
+      (error: Error) => {
+        debug('Error finding subject for chapter:', error.message);
+        resolve(null);
+      }
+    );
+  });
+};
+
 const quizes = () => async (ctx: Context) => {
   debug('Triggered "quizes" handler');
 
   if (!ctx.message || !('text' in ctx.message)) return;
 
-  const text = ctx.message.text.trim().toLowerCase();
-  const chapterMatch = text.match(/^\/chapter\s+(.+?)(?:\s+(\d+))?$/);
-  const subjectMatch = text.match(/^\/subject\s+(.+?)(?:\s+(\d+))?$/);
-  const randomMatch = text.match(/^\/random(?:\s+(\d+))?$/);
-  const cmdMatch = text.match(/^\/(pyq(b|c|p)?|[bcp]1)(\s*\d+)?$/);
+  const text = ctx.message.text.trim();
+  const chapterMatch = text.match(/^\/chapter\s+(.+?)(?:\s+(\d+))?$/i);
+  const subjectMatch = text.match(/^\/subject\s+(.+?)(?:\s+(\d+))?$/i);
+  const randomMatch = text.match(/^\/random(?:\s+(\d+))?$/i);
+  const cmdMatch = text.match(/^\/(pyq(b|c|p)?|[bcp]1)(\s*\d+)?$/i);
 
-  // Handle /chapter command
   if (chapterMatch) {
     const chapterQuery = chapterMatch[1].trim();
     const count = chapterMatch[2] ? parseInt(chapterMatch[2], 10) : 1;
 
     try {
-      const allQuestions = await fetchQuestions();
-      const chapters = [...new Set(allQuestions.map((q: any) => q.chapter))].sort();
-
-      // Find the best matching chapter using fuzzy search
+      const chapters = await getUniqueItems('chapters', 'biology'); // Temporary: check all subjects later
       const matchedChapter = findBestMatchingItem(chapters, chapterQuery);
 
       if (!matchedChapter) {
@@ -308,15 +326,11 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      // Find the subject for this chapter
-      const questionWithChapter = allQuestions.find(
-        (q: any) => q.chapter?.toLowerCase() === matchedChapter.toLowerCase()
-      );
-      if (!questionWithChapter) {
-        await ctx.reply(`No questions found for chapter "${matchedChapter}".`);
+      const subject = await findSubjectForChapter(matchedChapter);
+      if (!subject) {
+        await ctx.reply(`No subject found for chapter "${matchedChapter}".`);
         return;
       }
-      const subject = questionWithChapter.subject;
 
       const filteredByChapter = await fetchQuestions(subject, matchedChapter);
 
@@ -328,7 +342,6 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      // If the matched chapter isn't an exact match, confirm with user
       if (matchedChapter.toLowerCase() !== chapterQuery.toLowerCase()) {
         await ctx.replyWithHTML(
           `🔍 Did you mean "<b>${matchedChapter}</b>"?\n\n` +
@@ -376,15 +389,12 @@ const quizes = () => async (ctx: Context) => {
     return;
   }
 
-  // Handle /subject command
   if (subjectMatch) {
     const subjectQuery = subjectMatch[1].trim();
     const count = subjectMatch[2] ? parseInt(subjectMatch[2], 10) : 1;
 
     try {
       const subjects = await getUniqueItems('subjects');
-
-      // Find the best matching subject using fuzzy search
       const matchedSubject = findBestMatchingItem(subjects, subjectQuery);
 
       if (!matchedSubject) {
@@ -405,7 +415,6 @@ const quizes = () => async (ctx: Context) => {
         return;
       }
 
-      // If the matched subject isn't an exact match, confirm with user
       if (matchedSubject.toLowerCase() !== subjectQuery.toLowerCase()) {
         await ctx.replyWithHTML(
           `🔍 Did you mean "<b>${matchedSubject}</b>"?\n\n` +
@@ -453,7 +462,6 @@ const quizes = () => async (ctx: Context) => {
     return;
   }
 
-  // Handle /random command
   if (randomMatch) {
     const count = randomMatch[1] ? parseInt(randomMatch[1], 10) : 1;
 
@@ -499,10 +507,9 @@ const quizes = () => async (ctx: Context) => {
     return;
   }
 
-  // Handle legacy /pyq, /b1, /c1, /p1 commands
   if (cmdMatch) {
-    const cmd = cmdMatch[1]; // pyq, pyqb, pyqc, pyqp, b1, c1, p1
-    const subjectCode = cmdMatch[2]; // b, c, p
+    const cmd = cmdMatch[1].toLowerCase();
+    const subjectCode = cmdMatch[2];
     const count = cmdMatch[3] ? parseInt(cmdMatch[3].trim(), 10) : 1;
 
     const subjectMap: Record<string, string> = {
@@ -518,7 +525,7 @@ const quizes = () => async (ctx: Context) => {
       isMixed = true;
     } else if (subjectCode) {
       subject = subjectMap[subjectCode];
-    } else if (['b1', 'c1', 'p1'].includes(cmd)) {
+    } else if (['b1', 'c1'].includes(cmd)) {
       subject = subjectMap[cmd[0]];
     }
 
