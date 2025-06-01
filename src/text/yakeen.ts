@@ -7,26 +7,12 @@ const debug = createDebug('bot:yakeen');
 
 export function yakeen(CHANNEL_ID: string) {
   return async (ctx: Context) => {
-    const command = ctx.message && 'text' in ctx.message ? ctx.message.text.split(' ')[0].substring(1) : '';
-    const key = command.replace(/^yakeen_/, '').toLowerCase();
+    const commandText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+    const key = commandText.split(' ')[0].substring(1).toLowerCase(); // Extract key from /<keycommand>
 
-    // Special case for /video command
-    if (command.toLowerCase() === 'video') {
-      try {
-        const messageId = 2; // Hardcoded message ID for /video
-        await ctx.telegram.forwardMessage(ctx.chat!.id, CHANNEL_ID, messageId);
-        debug(`Forwarded message ${messageId} for command /video to chat ${ctx.chat!.id}`);
-        return;
-      } catch (error) {
-        debug('Failed to forward message for /video:', error);
-        await ctx.reply('❌ Failed to forward message for /video');
-        return;
-      }
-    }
-
-    // Validate key for other commands
+    // Validate key
     if (!key) {
-      await ctx.reply('Please specify a valid key.\nExample: /yakeen_lecture_1');
+      await ctx.reply('Please specify a valid command.\nExample: /video');
       return;
     }
 
@@ -87,13 +73,7 @@ export function yakeen(CHANNEL_ID: string) {
               debug('Error fetching chapters:', error.message);
               ctx.reply('❌ Error fetching chapters.');
             }
-          );
-        }
-      },
-      (error: Error) => {
-        debug('Error fetching subjects:', error.message);
-        ctx.reply('❌ Error fetching subjects.');
-      }
-    );
+      );
+    }
   };
 }
