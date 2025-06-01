@@ -73,7 +73,13 @@ export function yakeen(CHANNEL_ID: string) {
               debug('Error fetching chapters:', error.message);
               ctx.reply('❌ Error fetching chapters.');
             }
-      );
-    }
+          );
+        }
+      },
+      (error: Error) => {
+        debug('Error fetching subjects:', error.message);
+        ctx.reply('❌ Error fetching subjects.');
+      }
+    );
   };
 }
