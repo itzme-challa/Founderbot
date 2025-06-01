@@ -1,85 +1,61 @@
 import { Context } from 'telegraf';
-import createDebug from 'debug';
 import { db, ref, onValue } from '../utils/firebase';
 import { DataSnapshot } from 'firebase/database';
 
-const debug = createDebug('bot:yakeen');
+const CHANNEL_ID = process.env.CHANNEL_ID || '-1002277073649';
+const ADMIN_USERNAME = '@itzfew';
 
-export function yakeen(CHANNEL_ID: string) {
-  return async (ctx: Context) => {
-    const commandText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
-    const key = commandText.split(' ')[0].substring(1).toLowerCase(); // Extract key from /<keycommand>
+export const yakeen = () => async (ctx: Context) => {
+  const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+  if (!messageText || !messageText.startsWith('/yakeen_')) return;
 
-    // Validate key
-    if (!key) {
-      await ctx.reply('Please specify a valid command.\nExample: /video');
-      return;
-    }
+  const key = messageText.split('/yakeen_')[1]?.toLowerCase();
+  if (!key) {
+    await ctx.reply('Please provide a valid key. Usage: /yakeen_<key>');
+    return;
+  }
 
-    // Assuming batch '2026' for simplicity; extend to allow batch selection if needed
-    const batch = '2026';
-
-    // Fetch subjects to search for the key
-    const subjectsRef = ref(db, `batches/${batch}`);
-    onValue(
-      subjectsRef,
-      async (snapshot: DataSnapshot) => {
-        const subjects = snapshot.val() ? Object.keys(snapshot.val()) : [];
-        let found = false;
-
-        for (const subject of subjects) {
-          const chaptersRef = ref(db, `batches/${batch}/${subject}`);
-          onValue(
-            chaptersRef,
-            async (chapterSnapshot: DataSnapshot) => {
-              const chapters = chapterSnapshot.val() ? Object.keys(chapterSnapshot.val()).filter((ch) => ch !== 'keys') : [];
-
-              for (const chapter of chapters) {
-                const messageId = await new Promise<number | null>((resolve) => {
-                  const keyRef = ref(db, `batches/${batch}/${subject}/${chapter}/keys/${key}`);
-                  onValue(
-                    keyRef,
-                    (keySnapshot: DataSnapshot) => {
-                      const messageId = keySnapshot.val();
-                      resolve(messageId || null);
-                    },
-                    (error: Error) => {
-                      debug('Error fetching key:', error.message);
-                      resolve(null);
-                    }
-                  );
-                });
-
-                if (messageId) {
-                  found = true;
-                  try {
-                    await ctx.telegram.forwardMessage(ctx.chat!.id, CHANNEL_ID, messageId);
-                    debug(`Forwarded message ${messageId} for key ${key} to chat ${ctx.chat!.id}`);
-                    return;
-                  } catch (error) {
-                    debug('Failed to forward message:', error);
-                    await ctx.reply(`❌ Failed to forward message for key: ${key}`);
-                    return;
-                  }
-                }
-              }
-
-              // Reply only if no message was found after checking all chapters
-              if (!found) {
-                await ctx.reply(`❌ No message found for key: ${key}`);
-              }
-            },
-            (error: Error) => {
-              debug('Error fetching chapters:', error.message);
-              ctx.reply('❌ Error fetching chapters.');
-            }
-          );
-        }
-      },
-      (error: Error) => {
-        debug('Error fetching subjects:', error.message);
-        ctx.reply('❌ Error fetching subjects.');
+  // Fetch batches from Firebase
+  const batchesRef = ref(db, 'batches');
+  onValue(
+    batchesRef,
+    async (snapshot: DataSnapshot) => {
+      const batches = snapshot.val();
+      if (!batches) {
+        await ctx.reply(`Key not found: ${key}. Please contact ${ADMIN_USERNAME}.`);
+        return;
       }
-    );
-  };
-}
+
+      let found = false;
+      for (const batch of Object.keys(batches)) {
+        const subjects = batches[batch];
+        for (const subject of Object.keys(subjects)) {
+          const chapters = subjects[subject];
+          for (const chapter of Object.keys(chapters)) {
+            const keys = chapters[chapter].keys;
+            if (keys && keys[key]) {
+              const messageId = keys[key];
+              try {
+                await ctx.telegram.forwardMessage(ctx.chat!.id, CHANNEL_ID, parseInt(messageId));
+                found = true;
+                return;
+              } catch (error) {
+                console.error('Failed to forward message:', error);
+                await ctx.reply(`Message ID not found: ${messageId}. Please contact ${ADMIN_USERNAME}.`);
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      if (!found) {
+        await ctx.reply(`Key not found: ${key}. Please contact ${ADMIN_USERNAME}.`);
+      }
+    },
+    (error: Error) => {
+      console.error('Error fetching batches:', error.message);
+      ctx.reply('Error accessing Firebase. Please try again later.');
+    }
+  );
+};
