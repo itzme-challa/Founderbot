@@ -1,8 +1,7 @@
 import { Telegraf } from 'telegraf';
-import { db, ref, set, onValue } from '../utils/firebase';
+import { firebase } from '../utils/firebase'; // Adjusted import for v8
 import { ADMIN_ID, CHANNEL_ID } from '../config';
 import { Context } from 'telegraf';
-import { DataSnapshot } from 'firebase/database';
 import createDebug from 'debug';
 
 const debug = createDebug('bot:yakeen');
@@ -33,10 +32,7 @@ export function setupYakeenCommands(bot: Telegraf) {
 
     try {
       // Fetch all batches data from Firebase
-      const batchesRef = ref(db, 'batches');
-      const snapshot = await new Promise<DataSnapshot>((resolve) => {
-        onValue(batchesRef, (snap) => resolve(snap));
-      });
+      const snapshot = await firebase.database().ref('batches').once('value');
 
       if (!snapshot.exists()) {
         return ctx.reply('No batches data found. Contact admin @itzfew');
@@ -63,11 +59,8 @@ export function setupYakeenCommands(bot: Telegraf) {
 
       if (found && messageId) {
         try {
-          await ctx.forwardMessage(
-            ctx.chat.id,
-            CHANNEL_ID,
-            messageId
-          );
+          // Fixed: Use two arguments for forwardMessage
+          await ctx.telegram.forwardMessage(ctx.chat.id, messageId);
           debug(`Successfully forwarded message with key ${key}`);
         } catch (err) {
           debug(`Failed to forward message: ${err}`);
@@ -94,10 +87,7 @@ export function setupYakeenCommands(bot: Telegraf) {
 
     try {
       // Fetch batches data to get subjects
-      const batchesRef = ref(db, 'batches');
-      const snapshot = await new Promise<DataSnapshot>((resolve) => {
-        onValue(batchesRef, (snap) => resolve(snap));
-      });
+      const snapshot = await firebase.database().ref('batches').once('value');
 
       if (!snapshot.exists()) {
         return ctx.reply('No batches data found in Firebase.');
@@ -117,27 +107,25 @@ export function setupYakeenCommands(bot: Telegraf) {
         return ctx.reply('No subjects found in Firebase.');
       }
 
-      const subjectList = Array.from(subjects).map((subj, index) => 
-        `${index + 1}. ${subj}`
-      ).join('\n');
+      const subjectList = Array.from(subjects)
+        .map((subj, index) => `${index + 1}. ${subj}`)
+        .join('\n');
 
       publishStates[ctx.from.id] = {
         subject: undefined,
         chapter: undefined,
-        awaitingKeys: false
+        awaitingKeys: false,
       };
 
-      await ctx.reply(
-        `Select a subject by replying with its number:\n\n${subjectList}`
-      );
+      await ctx.reply(`Select a subject by replying with its number:\n\n${subjectList}`);
     } catch (error) {
       debug('Error in publish command:', error);
       await ctx.reply('Error fetching subjects. Please try again later.');
     }
   });
 
-  // Handle subject selection
-  bot.on('message', async (ctx) => {
+  // Handle subject and chapter selection, and key-value pairs
+  bot.on('message', async (ctx: Context) => {
     if (!ctx.from || !publishStates[ctx.from.id] || ctx.from.id !== ADMIN_ID) return;
 
     const state = publishStates[ctx.from.id];
@@ -149,10 +137,7 @@ export function setupYakeenCommands(bot: Telegraf) {
       if (isNaN(subjectNumber)) return;
 
       try {
-        const batchesRef = ref(db, 'batches');
-        const snapshot = await new Promise<DataSnapshot>((resolve) => {
-          onValue(batchesRef, (snap) => resolve(snap));
-        });
+        const snapshot = await firebase.database().ref('batches').once('value');
 
         if (!snapshot.exists()) return;
 
@@ -171,8 +156,8 @@ export function setupYakeenCommands(bot: Telegraf) {
         }
 
         state.subject = subjectList[subjectNumber - 1];
-        
-        // Now fetch chapters for this subject
+
+        // Fetch chapters for this subject
         const chapters: string[] = [];
         for (const batch of Object.values(batchesData)) {
           if (batch[state.subject]) {
@@ -186,9 +171,9 @@ export function setupYakeenCommands(bot: Telegraf) {
         }
 
         const uniqueChapters = [...new Set(chapters)];
-        const chapterList = uniqueChapters.map((chap, index) => 
-          `${index + 1}. ${chap}`
-        ).join('\n');
+        const chapterList = uniqueChapters
+          .map((chap, index) => `${index + 1}. ${chap}`)
+          .join('\n');
 
         await ctx.reply(
           `Selected subject: ${state.subject}\n\n` +
@@ -204,10 +189,7 @@ export function setupYakeenCommands(bot: Telegraf) {
       if (isNaN(chapterNumber)) return;
 
       try {
-        const batchesRef = ref(db, 'batches');
-        const snapshot = await new Promise<DataSnapshot>((resolve) => {
-          onValue(batchesRef, (snap) => resolve(snap));
-        });
+        const snapshot = await firebase.database().ref('batches').once('value');
 
         if (!snapshot.exists()) return;
 
@@ -240,7 +222,8 @@ export function setupYakeenCommands(bot: Telegraf) {
       }
     } else if (state.awaitingKeys && msg.text) {
       // Key-value pairs input
-      const keyValuePairs = msg.text.split(',')
+      const keyValuePairs: string[] = msg.text
+        .split(',')
         .map((pair: string) => pair.trim())
         .filter((pair: string) => pair.includes(':'));
 
@@ -255,7 +238,7 @@ export function setupYakeenCommands(bot: Telegraf) {
       let hasError = false;
 
       for (const pair of keyValuePairs) {
-        const [key, value] = pair.split(':').map((part: string) => part.trim());
+        const [key, value]: string[] = pair.split(':').map((part: string) => part.trim());
         const messageId = parseInt(value, 10);
 
         if (!key || isNaN(messageId)) {
@@ -267,23 +250,16 @@ export function setupYakeenCommands(bot: Telegraf) {
       }
 
       if (Object.keys(entries).length === 0) {
-        return ctx.reply(
-          'No valid key:value pairs found. Please try again.'
-        );
+        return ctx.reply('No valid key:value pairs found. Please try again.');
       }
 
       if (hasError) {
-        await ctx.reply(
-          'Some entries were invalid and skipped. Processing valid ones...'
-        );
+        await ctx.reply('Some entries were invalid and skipped. Processing valid ones...');
       }
 
       try {
         // Find the first batch that has this subject and chapter
-        const batchesRef = ref(db, 'batches');
-        const snapshot = await new Promise<DataSnapshot>((resolve) => {
-          onValue(batchesRef, (snap) => resolve(snap));
-        });
+        const snapshot = await firebase.database().ref('batches').once('value');
 
         if (!snapshot.exists()) return;
 
@@ -303,17 +279,11 @@ export function setupYakeenCommands(bot: Telegraf) {
         }
 
         const updatePath = `batches/${targetBatch}/${state.subject}/${state.chapter}/keys`;
-        const keysRef = ref(db, updatePath);
-
-        // Get existing keys to merge with new ones
-        const existingSnapshot = await new Promise<DataSnapshot>((resolve) => {
-          onValue(keysRef, (snap) => resolve(snap));
-        });
-
+        const existingSnapshot = await firebase.database().ref(updatePath).once('value');
         const existingKeys = existingSnapshot.exists() ? existingSnapshot.val() : {};
         const mergedKeys = { ...existingKeys, ...entries };
 
-        await set(keysRef, mergedKeys);
+        await firebase.database().ref(updatePath).set(mergedKeys);
 
         await ctx.reply(
           `✅ Successfully added/updated ${Object.keys(entries).length} keys ` +
