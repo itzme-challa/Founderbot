@@ -5,7 +5,7 @@ import createDebug from 'debug';
 
 const debug = createDebug('bot:yakeen');
 
-const CHANNEL_ID = process.env.CHANNEL_ID || ''; // Ensure CHANNEL_ID is set in environment variables
+const CHANNEL_ID = process.env.CHANNEL_ID || '';
 
 export function yakeen() {
   return async (ctx: Context) => {
@@ -20,11 +20,8 @@ export function yakeen() {
 
     const lectureNumber = match[1];
     const key = `yakeen_lecture_${lectureNumber}`;
+    const batch = '2026'; // Hardcoded for simplicity
 
-    // Assuming batch '2026' for this example
-    const batch = '2026';
-
-    // Fetch all subjects for the batch
     const subjectsRef = ref(db, `batches/${batch}`);
     onValue(
       subjectsRef,
@@ -39,7 +36,6 @@ export function yakeen() {
         let messageId: number | null = null;
         let found = false;
 
-        // Iterate through subjects and chapters to find the key
         for (const subject of subjects) {
           const chaptersRef = ref(db, `batches/${batch}/${subject}`);
           await new Promise<void>((resolve) => {
