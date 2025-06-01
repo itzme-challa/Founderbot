@@ -10,6 +10,21 @@ export function yakeen(CHANNEL_ID: string) {
     const command = ctx.message && 'text' in ctx.message ? ctx.message.text.split(' ')[0].substring(1) : '';
     const key = command.replace(/^yakeen_/, '').toLowerCase();
 
+    // Special case for /video command
+    if (command.toLowerCase() === 'video') {
+      try {
+        const messageId = 2; // Hardcoded message ID for /video
+        await ctx.telegram.forwardMessage(ctx.chat!.id, CHANNEL_ID, messageId);
+        debug(`Forwarded message ${messageId} for command /video to chat ${ctx.chat!.id}`);
+        return;
+      } catch (error) {
+        debug('Failed to forward message for /video:', error);
+        await ctx.reply('❌ Failed to forward message for /video');
+        return;
+      }
+    }
+
+    // Validate key for other commands
     if (!key) {
       await ctx.reply('Please specify a valid key.\nExample: /yakeen_lecture_1');
       return;
@@ -63,6 +78,7 @@ export function yakeen(CHANNEL_ID: string) {
                 }
               }
 
+              // Reply only if no message was found after checking all chapters
               if (!found) {
                 await ctx.reply(`❌ No message found for key: ${key}`);
               }
