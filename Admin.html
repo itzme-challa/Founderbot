@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Key Formatter - Tab Separated</title>
+  <title>Key Formatter with Chapter</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 p-6 font-sans">
   <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-md">
-    <h1 class="text-2xl font-bold mb-4">Key Formatter (Google Sheets Ready)</h1>
+    <h1 class="text-2xl font-bold mb-4">Key Formatter (Tab-separated with Chapter)</h1>
 
     <!-- Subject Selection -->
     <label class="font-semibold block mb-2">Select Subject:</label>
@@ -36,7 +36,7 @@
 
     <!-- Output Area -->
     <div id="outputSection" class="mt-6 hidden">
-      <h2 class="text-xl font-semibold mb-2">Formatted Output (Tab-Separated):</h2>
+      <h2 class="text-xl font-semibold mb-2">Formatted Output (Tab-Separated with Chapter):</h2>
       <textarea id="outputArea" class="w-full h-64 p-3 border border-gray-300 rounded mb-4 font-mono" readonly></textarea>
       <button onclick="copyOutput()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Copy to Clipboard</button>
     </div>
@@ -44,13 +44,104 @@
 
   <script>
     const chapters = {
-      physics: ["Motion in Plane", "Laws of Motion", "Gravitation"],
-      zoology: ["Animal Kingdom", "Human Physiology"],
-      botany: ["Plant Physiology", "Genetics"],
-      inorganic_chemistry: ["Periodic Table", "Chemical Bonding"],
-      organic_chemistry: ["Hydrocarbons", "Alcohols and Ethers"],
-      physical_chemistry: ["Mole Concept", "Thermodynamics"]
-    };
+  physics: [
+    "Basic Mathematics and Vectors",
+    "Motion in a Straight Line 1D",
+    "Motion in a Plane + Kinematics of Circular Motion",
+    "Newton Laws of Motion + Circular Dynamics",
+    "Work, Energy and Power",
+    "Centre of Mass + Collision",
+    "Electric Charges and Field",
+    "Electrostatic Potential and Capacitance",
+    "Current Electricity",
+    "Electromagnetic Wave",
+    "Moving Charges and Magnetism",
+    "System of Particles + Rotational Motion",
+    "Electromagnetic Induction",
+    "Mechanical Properties of Fluids",
+    "Thermal Properties of Matter",
+    "Kinetic Theory of Gases and Thermodynamics",
+    "Ray Optics",
+    "Wave Optics",
+    "Mechanical Properties of Solids",
+    "Alternating Current",
+    "Simple Harmonic Motion",
+    "Atoms",
+    "Nuclei",
+    "Units and Measurement",
+    "Dual Nature of Radiation and Matter",
+    "Gravitation",
+    "Wave Motion",
+    "Semiconductor",
+    "Magnetism and Matter"
+  ],
+  zoology: [
+    "Breathing and Exchange of Gases",
+    "Excretory Products and their Elimination",
+    "Neural Control and Coordination",
+    "Biomolecule",
+    "Chemical Coordination and Integration",
+    "Body Fluids and Circulation",
+    "Animal Kingdom",
+    "Biotechnology: Principles and Processes",
+    "Reproductive Health",
+    "Human Reproduction",
+    "Evolution",
+    "Human Health and Diseases",
+    "Frog and Cockroach",
+    "Biotechnology and its Application",
+    "Locomotion and Movement"
+  ],
+  botany: [
+    "Cell Cycle and Cell Division",
+    "Plant Kingdom",
+    "Respiration in Plants",
+    "Molecular Basis of Inheritance",
+    "Sexual Reproduction in Flowering Plants",
+    "Anatomy of Flowering Plants",
+    "Photosynthesis in Higher Plants",
+    "Morphology of Flowering Plants",
+    "Cell: The Unit of Life",
+    "Biological Classification",
+    "Ecosystem",
+    "Plant Growth and Development",
+    "Organism and Population",
+    "Microbes in Human Welfare & Living World",
+    "Biodiversity and Conservation",
+    "Principle of Inheritance and Variation"
+  ],
+  inorganic_chemistry: [
+    "Periodic Table",
+    "P-Block Elements",
+    "D & F Block",
+    "Coordination Compounds",
+    "Salt Analysis",
+    "Chemical Bonding"
+  ],
+  organic_chemistry: [
+    "IUPAC Naming",
+    "Isomerism",
+    "Purification and Qualitative and Quantitative Analysis",
+    "Haloalkanes and Haloarenes",
+    "GOC",
+    "Hydrocarbon",
+    "Alcohols, Ethers and Phenols",
+    "Carbonyl Compounds and Carboxylic Acid",
+    "Amines and Diazonium Salt",
+    "Biomolecules"
+  ],
+  physical_chemistry: [
+    "Mole Concept",
+    "Atomic Structure",
+    "Chemical Equilibrium",
+    "Ionic Equilibrium",
+    "Redox Reactions",
+    "Solution",
+    "Electrochemistry",
+    "Chemical Kinetics",
+    "Thermodynamics and Thermochemistry"
+  ]
+};
 
     function updateChapters() {
       const subject = document.getElementById('subjectSelect').value;
@@ -68,19 +159,22 @@
 
     function generateOutput() {
       const subject = document.getElementById('subjectSelect').value;
+      const chapter = document.getElementById('chapterSelect').value;
       const keyInput = document.getElementById('keyInput').value;
-      if (!subject || !keyInput) {
-        alert("Please select subject and enter keys.");
+
+      if (!subject || !chapter || !keyInput) {
+        alert("Please select subject, chapter, and enter keys.");
         return;
       }
 
+      const formattedChapter = chapter.replace(/\s+/g, "_");
       const entries = keyInput.split(',').map(k => k.trim()).filter(Boolean);
       let result = "";
 
       for (const entry of entries) {
         const [keyword, messageId, format] = entry.split(':');
         if (keyword && messageId && format) {
-          result += `${keyword}\t${messageId}\t${subject}\t${format}\n`;
+          result += `${keyword}\t${messageId}\t${subject}\t${formattedChapter}\t${format}\n`;
         }
       }
 
@@ -92,7 +186,7 @@
       const output = document.getElementById('outputArea');
       output.select();
       document.execCommand('copy');
-      alert("Copied to clipboard! Paste into Google Sheets.");
+      alert("Copied to clipboard! Paste into Google Sheets or Excel.");
     }
   </script>
 </body>
