@@ -5,7 +5,7 @@ import { db, ref, push, set, onValue } from './utils/firebase';
 import { DataSnapshot } from 'firebase/database';
 import { saveToSheet } from './utils/saveToSheet';
 import { about } from './commands';
-import { quizes, greeting, yakeen } from './text'; // Added yakeen import
+import { quizes, greeting, yakeen } from './text';
 import { development, production } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { quote } from './commands/quotes';
@@ -16,7 +16,7 @@ const debug = createDebug('bot:index');
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const CHANNEL_ID = process.env.CHANNEL_ID || '-1002277073649'; // Added CHANNEL_ID from .env
+const CHANNEL_ID = process.env.CHANNEL_ID || '-1002277073649';
 let accessToken: string | null = null;
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
@@ -158,7 +158,7 @@ async function fetchSubjects(batch: string): Promise<string[]> {
 // --- COMMANDS ---
 bot.command('about', about());
 bot.command('quote', quote());
-bot.command('yakeen', yakeen()); // Added yakeen command
+bot.command('yakeen', yakeen());
 
 bot.command('users', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) {
@@ -213,7 +213,7 @@ bot.action('refresh_users', async (ctx) => {
 bot.command('broadcast', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized to use this command.');
 
-  const msg = ctx.message?.text?.split(' ').slice(1).join(' ');
+  const msg = ctx.message && 'text' in ctx.message ? ctx.message.text.split(' ').slice(1).join(' ') : '';
   if (!msg) return ctx.reply('Usage:\n/broadcast Your message here');
 
   let chatIds: number[] = [];
@@ -245,7 +245,7 @@ bot.command('broadcast', async (ctx) => {
 bot.command('reply', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized to use this command.');
 
-  const parts = ctx.message?.text?.split(' ');
+  const parts = ctx.message && 'text' in ctx.message ? ctx.message.text.split(' ') : [];
   if (!parts || parts.length < 3) {
     return ctx.reply('Usage:\n/reply <chat_id> [message]');
   }
@@ -276,8 +276,8 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
     return ctx.reply('You are not authorized to use this command.');
   }
 
-  const command = ctx.message?.text?.split(' ')[0].substring(1);
-  const countStr = ctx.message?.text?.split(' ')[1];
+  const command = ctx.message && 'text' in ctx.message ? ctx.message.text.split(' ')[0].substring(1) : '';
+  const countStr = ctx.message && 'text' in ctx.message ? ctx.message.text.split(' ')[1] : '';
   const count = parseInt(countStr || '', 10);
 
   if (!countStr || isNaN(count) || count <= 0) {
@@ -291,14 +291,16 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
     const parts = command.split('_');
     subject = parts[0].replace(/^add/, '').toLowerCase();
     chapter = parts.slice(1).join(' ').replace(/_/g, ' ').toLowerCase();
-    pendingSubmissions[ctx.from.id] = {
-      subject,
-      chapter,
-      count,
-      questions: [],
-      expectingImageFor: undefined,
-      awaitingChapterSelection: false,
-    };
+    if (ctx.from?.id) {
+      pendingSubmissions[ctx.from.id] = {
+        subject,
+        chapter,
+        count,
+        questions: [],
+        expectingImageFor: undefined,
+        awaitingChapterSelection: false,
+      };
+    }
 
     await ctx.reply(
       `Selected chapter: *${chapter}* for *${subject}*. ` +
@@ -325,14 +327,16 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
   const telegraphContent = `Chapters for ${subject}:\n${chaptersList}`;
   const telegraphUrl = await createTelegraphPage(`Chapters for ${subject}`, telegraphContent);
 
-  pendingSubmissions[ctx.from.id] = {
-    subject,
-    chapter,
-    count,
-    questions: [],
-    expectingImageFor: undefined,
-    awaitingChapterSelection: true,
-  };
+  if (ctx.from?.id) {
+    pendingSubmissions[ctx.from.id] = {
+      subject,
+      chapter,
+      count,
+      questions: [],
+      expectingImageFor: undefined,
+      awaitingChapterSelection: true,
+    };
+  }
 
   const replyText = `Please select a chapter for *${subject}* by replying with the chapter number:\n\n${chaptersList}\n\n` +
     (telegraphUrl ? `📖 View chapters on Telegraph: ${telegraphUrl}` : '');
@@ -354,13 +358,15 @@ bot.command('publish', async (ctx) => {
   const telegraphContent = `Batches:\n${batchesList}`;
   const telegraphUrl = await createTelegraphPage('Batches', telegraphContent);
 
-  pendingPublishes[ctx.from.id] = {
-    subject: '',
-    chapter: '',
-    awaitingChapterSelection: false,
-    awaitingKeys: false,
-    page: 1,
-  };
+  if (ctx.from?.id) {
+    pendingPublishes[ctx.from.id] = {
+      subject: '',
+      chapter: '',
+      awaitingChapterSelection: false,
+      awaitingKeys: false,
+      page: 1,
+    };
+  }
 
   const replyText = `Please select a batch by replying with the batch number:\n\n${batchesList}\n\n` +
     (telegraphUrl ? `📖 View batches on Telegraph: ${telegraphUrl}` : '');
@@ -368,7 +374,7 @@ bot.command('publish', async (ctx) => {
 });
 
 bot.start(async (ctx) => {
-  if (isPrivateChat(ctx.chat.type)) {
+  if (isPrivateChat(ctx.chat?.type)) {
     await ctx.reply('Welcome! Use /help to explore commands.');
     await greeting()(ctx);
   }
@@ -377,9 +383,9 @@ bot.start(async (ctx) => {
 bot.on('message', async (ctx) => {
   const chat = ctx.chat;
   const msg = ctx.message as any;
-  const chatType = chat.type;
+  const chatType = chat?.type;
 
-  if (!chat?.id) return;
+  if (!chat?.id || !ctx.from?.id) return;
 
   saveChatId(chat.id);
   const alreadyNotified = await saveToSheet(chat);
@@ -395,8 +401,8 @@ bot.on('message', async (ctx) => {
     }
   }
 
-  if (msg.text?.startsWith('/contact')) {
-    const userMessage = msg.text.replace('/contact', '').trim() || msg.reply_to_message?.text;
+  if (msg?.text?.startsWith('/contact')) {
+    const userMessage = msg.text.replace('/contact', '').trim() || (msg.reply_to_message?.text ?? '');
     if (userMessage) {
       const firstName = 'first_name' in chat ? chat.first_name : 'Unknown';
       const username = 'username' in chat && typeof chat.username === 'string' ? `@${chat.username}` : 'N/A';
@@ -413,7 +419,7 @@ bot.on('message', async (ctx) => {
     return;
   }
 
-  if (chat.id === ADMIN_ID && msg.reply_to_message?.text) {
+  if (chat.id === ADMIN_ID && msg?.reply_to_message?.text) {
     const match = msg.reply_to_message.text.match(/Chat ID: (\d+)/);
     if (match) {
       const targetId = parseInt(match[1], 10);
@@ -431,7 +437,7 @@ bot.on('message', async (ctx) => {
   }
 
   // Handle batch selection for /publish
-  if (chat.id === ADMIN_ID && pendingPublishes[chat.id] && !pendingPublishes[chat.id].subject && msg.text) {
+  if (chat.id === ADMIN_ID && pendingPublishes[ctx.from.id] && !pendingPublishes[ctx.from.id].subject && msg?.text) {
     const batchNumber = parseInt(msg.text.trim(), 10);
     const batches = await fetchBatches();
     if (isNaN(batchNumber) || batchNumber < 1 || batchNumber > batches.length) {
@@ -439,89 +445,91 @@ bot.on('message', async (ctx) => {
       return;
     }
 
-    pendingPublishes[chat.id].subject = batches[batchNumber - 1].toLowerCase();
-    const subjects = await fetchSubjects(pendingPublishes[chat.id].subject);
+    pendingPublishes[ctx.from.id].subject = batches[batchNumber - 1].toLowerCase();
+    const subjects = await fetchSubjects(pendingPublishes[ctx.from.id].subject);
     if (subjects.length === 0) {
-      await ctx.reply(`No subjects found for batch ${pendingPublishes[chat.id].subject}.`);
-      delete pendingPublishes[chat.id];
+      await ctx.reply(`No subjects found for batch ${pendingPublishes[ctx.from.id].subject}.`);
+      delete pendingPublishes[ctx.from.id];
       return;
     }
 
     const subjectsList = subjects.map((s, index) => `${index + 1}. ${s}`).join('\n');
-    const telegraphContent = `Subjects for ${pendingPublishes[chat.id].subject}:\n${subjectsList}`;
-    const telegraphUrl = await createTelegraphPage(`Subjects for ${pendingPublishes[chat.id].subject}`, telegraphContent);
+    const telegraphContent = `Subjects for ${pendingPublishes[ctx.from.id].subject}:\n${subjectsList}`;
+    const telegraphUrl = await createTelegraphPage(`Subjects for ${pendingPublishes[ctx.from.id].subject}`, telegraphContent);
 
-    const replyText = `Please select a subject for *${pendingPublishes[chat.id].subject}* by replying with the subject number:\n\n${subjectsList}\n\n` +
+    const replyText = `Please select a subject for *${pendingPublishes[ctx.from.id].subject}* by replying with the subject number:\n\n${subjectsList}\n\n` +
       (telegraphUrl ? `📖 View subjects on Telegraph: ${telegraphUrl}` : '');
     await ctx.reply(replyText, { parse_mode: 'Markdown' });
     return;
   }
 
   // Handle subject selection for /publish
-  if (chat.id === ADMIN_ID && pendingPublishes[chat.id]?.subject && !pendingPublishes[chat.id].chapter && msg.text) {
+  if (chat.id === ADMIN_ID && pendingPublishes[ctx.from.id]?.subject && !pendingPublishes[ctx.from.id].chapter && msg?.text) {
     const subjectNumber = parseInt(msg.text.trim(), 10);
-    const subjects = await fetchSubjects(pendingPublishes[chat.id].subject);
+    const subjects = await fetchSubjects(pendingPublishes[ctx.from.id].subject);
     if (isNaN(subjectNumber) || subjectNumber < 1 || subjectNumber > subjects.length) {
       await ctx.reply(`Please enter a valid subject number between 1 and ${subjects.length}.`);
       return;
     }
 
-    pendingPublishes[chat.id].subject = subjects[subjectNumber - 1].toLowerCase();
-    const chapters = await fetchChapters(pendingPublishes[chat.id].subject);
+    pendingPublishes[ctx.from.id].subject = subjects[subjectNumber - 1].toLowerCase();
+    const chapters = await fetchChapters(pendingPublishes[ctx.from.id].subject);
     if (chapters.length === 0) {
-      await ctx.reply(`No chapters found for ${pendingPublishes[chat.id].subject}.`);
-      delete pendingPublishes[chat.id];
+      await ctx.reply(`No chapters found for ${pendingPublishes[ctx.from.id].subject}.`);
+      delete pendingPublishes[ctx.from.id];
       return;
     }
 
-    pendingPublishes[chat.id].awaitingChapterSelection = true;
-    pendingPublishes[chat.id].page = 1;
+    pendingPublishes[ctx.from.id].awaitingChapterSelection = true;
+    pendingPublishes[ctx.from.id].page = 1;
 
     const ITEMS_PER_PAGE = 10;
-    const start = (pendingPublishes[chat.id].page - 1) * ITEMS_PER_PAGE;
+    const start = (pendingPublishes[ctx.from.id].page - 1) * ITEMS_PER_PAGE;
     const end = start + ITEMS_PER_PAGE;
     const paginatedChapters = chapters.slice(start, end);
     const chaptersList = paginatedChapters.map((ch, index) => `${start + index + 1}. ${ch}`).join('\n');
-    const telegraphContent = `Chapters for ${pendingPublishes[chat.id].subject}:\n${chapters.map((ch, index) => `${index + 1}. ${ch}`).join('\n')}`;
-    const telegraphUrl = await createTelegraphPage(`Chapters for ${pendingPublishes[chat.id].subject}`, telegraphContent);
+    const telegraphContent = `Chapters for ${pendingPublishes[ctx.from.id].subject}:\n${chapters.map((ch, index) => `${index + 1}. ${ch}`).join('\n')}`;
+    const telegraphUrl = await createTelegraphPage(`Chapters for ${pendingPublishes[ctx.from.id].subject}`, telegraphContent);
 
     const inlineKeyboard = [];
     if (chapters.length > ITEMS_PER_PAGE) {
       const buttons = [];
-      if (pendingPublishes[chat.id].page > 1) {
-        buttons.push({ text: 'Previous', callback_data: `prev_page_${pendingPublishes[chat.id].subject}` });
+      if (pendingPublishes[ctx.from.id].page > 1) {
+        buttons.push({ text: 'Previous', callback_data: `prev_page_${pendingPublishes[ctx.from.id].subject}` });
       }
       if (end < chapters.length) {
-        buttons.push({ text: 'Next', callback_data: `next_page_${pendingPublishes[chat.id].subject}` });
+        buttons.push({ text: 'Next', callback_data: `next_page_${pendingPublishes[ctx.from.id].subject}` });
       }
       inlineKeyboard.push(buttons);
     }
 
-    const replyText = `Please select a chapter for *${pendingPublishes[chat.id].subject}* by replying with the chapter number:\n\n${chaptersList}\n\n` +
-      (telegraphUrl ? `📖 View chapters on Telegraph: ${telegraphUrl}` : '');
-    await ctx.reply(replyText, {
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: inlineKeyboard },
-    });
+    await ctx.reply(
+      `Please select a chapter for *${pendingPublishes[ctx.from.id].subject}* by replying with the chapter number:\n\n${chaptersList}\n\n` +
+      (telegraphUrl ? `📖 View chapters on Telegraph: ${telegraphUrl}` : ''),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: inlineKeyboard },
+      }
+    );
     return;
   }
 
   // Handle chapter selection for /publish
-  if (chat.id === ADMIN_ID && pendingPublishes[chat.id]?.awaitingChapterSelection && msg.text) {
+  if (chat.id === ADMIN_ID && pendingPublishes[ctx.from.id]?.awaitingChapterSelection && msg?.text) {
     const chapterNumber = parseInt(msg.text.trim(), 10);
-    const chapters = await fetchChapters(pendingPublishes[chat.id].subject);
-    const start = (pendingPublishes[chat.id].page - 1) * 10;
+    const chapters = await fetchChapters(pendingPublishes[ctx.from.id].subject);
+    const start = (pendingPublishes[ctx.from.id].page - 1) * 10;
     if (isNaN(chapterNumber) || chapterNumber < start + 1 || chapterNumber > start + Math.min(10, chapters.length - start)) {
       await ctx.reply(`Please enter a valid chapter number between ${start + 1} and ${start + Math.min(10, chapters.length)}.`);
       return;
     }
 
-    pendingPublishes[chat.id].chapter = chapters[chapterNumber - 1].toLowerCase();
-    pendingPublishes[chat.id].awaitingChapterSelection = false;
-    pendingPublishes[chat.id].awaitingKeys = true;
+    pendingPublishes[ctx.from.id].chapter = chapters[chapterNumber - 1].toLowerCase();
+    pendingPublishes[ctx.from.id].awaitingChapterSelection = false;
+    pendingPublishes[ctx.from.id].awaitingKeys = true;
 
     await ctx.reply(
-      `Selected chapter: *${pendingPublishes[chat.id].chapter}* for *${pendingPublishes[chat.id].subject}*. ` +
+      `Selected chapter: *${pendingPublishes[ctx.from.id].chapter}* for *${pendingPublishes[ctx.from.id].subject}*. ` +
       `Please send keys with message IDs in the format: key1:id1,key2:id2,...`,
       { parse_mode: 'Markdown' }
     );
@@ -535,8 +543,8 @@ bot.on('message', async (ctx) => {
       return;
     }
 
-    const subject = ctx.match[1];
-    if (!pendingPublishes[ctx.from.id] || pendingPublishes[ctx.from.id].subject !== subject) {
+    const subject = ctx.match?.[1];
+    if (!subject || !pendingPublishes[ctx.from.id] || pendingPublishes[ctx.from.id].subject !== subject) {
       await ctx.answerCbQuery('Session expired');
       return;
     }
@@ -580,8 +588,8 @@ bot.on('message', async (ctx) => {
       return;
     }
 
-    const subject = ctx.match[1];
-    if (!pendingPublishes[ctx.from.id] || pendingPublishes[ctx.from.id].subject !== subject) {
+    const subject = ctx.match?.[1];
+    if (!subject || !pendingPublishes[ctx.from.id] || pendingPublishes[ctx.from.id].subject !== subject) {
       await ctx.answerCbQuery('Session expired');
       return;
     }
@@ -620,7 +628,7 @@ bot.on('message', async (ctx) => {
   });
 
   // Handle keys submission for /publish
-  if (chat.id === ADMIN_ID && pendingPublishes[chat.id]?.awaitingKeys && msg.text) {
+  if (chat.id === ADMIN_ID && pendingPublishes[ctx.from.id]?.awaitingKeys && msg?.text) {
     const keysInput = msg.text.trim();
     const keyPairs = keysInput.split(',').map((pair: string) => pair.trim().split(':'));
     const validKeys: { [key: string]: string } = {};
@@ -634,12 +642,12 @@ bot.on('message', async (ctx) => {
     }
 
     try {
-      const keysRef = ref(db, `batches/${pendingPublishes[chat.id].subject}/${pendingPublishes[chat.id].chapter}/keys`);
+      const keysRef = ref(db, `batches/${pendingPublishes[ctx.from.id].subject}/${pendingPublishes[ctx.from.id].chapter}/keys`);
       await set(keysRef, { ...validKeys });
       await ctx.reply(
-        `✅ Successfully added ${Object.keys(validKeys).length} keys to *${pendingPublishes[chat.id].subject}* (Chapter: *${pendingPublishes[chat.id].chapter}*).`
+        `✅ Successfully added ${Object.keys(validKeys).length} keys to *${pendingPublishes[ctx.from.id].subject}* (Chapter: *${pendingPublishes[ctx.from.id].chapter}*).`
       );
-      delete pendingPublishes[chat.id];
+      delete pendingPublishes[ctx.from.id];
     } catch (error) {
       debug('Failed to save keys to Firebase:', error);
       await ctx.reply('❌ Error: Unable to save keys to Firebase.');
@@ -648,7 +656,7 @@ bot.on('message', async (ctx) => {
   }
 
   // Handle chapter selection for /add
-  if (chat.id === ADMIN_ID && pendingSubmissions[chat.id]?.awaitingChapterSelection && msg.text) {
+  if (chat.id === ADMIN_ID && pendingSubmissions[ctx.from.id]?.awaitingChapterSelection && msg?.text) {
     const submission = pendingSubmissions[ctx.from.id];
     const chapterNumber = parseInt(msg.text.trim(), 10);
 
@@ -671,8 +679,8 @@ bot.on('message', async (ctx) => {
     return;
   }
 
-  if (chat.id === ADMIN_ID && pendingSubmissions[chat.id] && msg.poll) {
-    const submission = pendingSubmissions[chat.id];
+  if (chat.id === ADMIN_ID && pendingSubmissions[ctx.from.id] && msg?.poll) {
+    const submission = pendingSubmissions[ctx.from.id];
     const poll = msg.poll;
 
     if (poll.type !== 'quiz') {
@@ -725,7 +733,7 @@ bot.on('message', async (ctx) => {
         await ctx.reply(
           `✅ Successfully added ${submission.count} questions to *${submission.subject}* (Chapter: *${submission.chapter}*).`
         );
-        delete pendingSubmissions[chat.id];
+        delete pendingSubmissions[ctx.from.id];
       } catch (error) {
         debug('Failed to save questions to Firebase:', error);
         await ctx.reply('❌ Error: Unable to save questions to Firebase.');
@@ -734,8 +742,8 @@ bot.on('message', async (ctx) => {
     return;
   }
 
-  if (chat.id === ADMIN_ID && pendingSubmissions[chat.id] && msg.text && pendingSubmissions[chat.id].expectingImageFor) {
-    const submission = pendingSubmissions[chat.id];
+  if (chat.id === ADMIN_ID && pendingSubmissions[ctx.from.id] && msg?.text && pendingSubmissions[ctx.from.id].expectingImageFor) {
+    const submission = pendingSubmissions[ctx.from.id];
     const lastQuestion = submission.questions[submission.questions.length - 1];
 
     if (msg.text.toLowerCase() === 'skip') {
@@ -762,7 +770,7 @@ bot.on('message', async (ctx) => {
     return;
   }
 
-  if (msg.poll) {
+  if (msg?.poll) {
     const poll = msg.poll;
     const pollJson = JSON.stringify(poll, null, 2);
 
@@ -772,14 +780,14 @@ bot.on('message', async (ctx) => {
       await set(newPollRef, {
         poll,
         from: {
-          id: ctx.from?.id,
-          username: ctx.from?.username || null,
-          first_name: ctx.from?.first_name || null,
-          last_name: ctx.from?.last_name || null,
+          id: ctx.from.id,
+          username: ctx.from.username || null,
+          first_name: ctx.from.first_name || null,
+          last_name: ctx.from.last_name || null,
         },
         chat: {
-          id: ctx.chat.id,
-          type: ctx.chat.type,
+          id: chat.id,
+          type: chat.type,
         },
         receivedAt: Date.now(),
       });
@@ -790,7 +798,7 @@ bot.on('message', async (ctx) => {
 
     await ctx.telegram.sendMessage(
       ADMIN_ID,
-      `📊 *New Telegram Poll received from @${ctx.from?.username || 'unknown'}:*\n\`\`\`json\n${pollJson}\n\`\`\``,
+      `📊 *New Telegram Poll received from @${ctx.from.username || 'unknown'}:*\n\`\`\`json\n${pollJson}\n\`\`\``,
       { parse_mode: 'Markdown' }
     );
 
