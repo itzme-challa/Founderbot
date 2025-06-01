@@ -1,161 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Firebase Admin Panel</title>
+  <meta charset="UTF-8" />
+  <title>Key Formatter - Tab Separated</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-    import { getDatabase, ref, onValue, set, remove } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+</head>
+<body class="bg-gray-100 p-6 font-sans">
+  <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-md">
+    <h1 class="text-2xl font-bold mb-4">Key Formatter (Google Sheets Ready)</h1>
 
-    const firebaseConfig = {
-      apiKey: "AIzaSyDNME0C__0yE84_fmabt9_qhnv7l4Y2osg",
-      authDomain: "telegrambot-d9bde.firebaseapp.com",
-      databaseURL: "https://telegrambot-d9bde-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "telegrambot-d9bde",
-      storageBucket: "telegrambot-d9bde.appspot.com",
-      messagingSenderId: "1016643360568",
-      appId: "1:1016643360568:web:a495de89c5f7f983e6d3cd",
-      measurementId: "G-ZQLEPBPWZV"
+    <!-- Subject Selection -->
+    <label class="font-semibold block mb-2">Select Subject:</label>
+    <select id="subjectSelect" onchange="updateChapters()" class="w-full p-2 mb-4 border rounded">
+      <option value="">-- Choose Subject --</option>
+      <option value="physics">Physics</option>
+      <option value="zoology">Zoology</option>
+      <option value="botany">Botany</option>
+      <option value="inorganic_chemistry">Inorganic Chemistry</option>
+      <option value="organic_chemistry">Organic Chemistry</option>
+      <option value="physical_chemistry">Physical Chemistry</option>
+    </select>
+
+    <!-- Chapter Selection -->
+    <label class="font-semibold block mb-2">Select Chapter:</label>
+    <select id="chapterSelect" class="w-full p-2 mb-4 border rounded">
+      <option value="">-- Choose Chapter --</option>
+    </select>
+
+    <!-- Key Input -->
+    <label class="font-semibold block mb-2">Enter Keys (format: key1:1:pdf,testkey:2:video,...)</label>
+    <input id="keyInput" type="text" placeholder="key1:1:pdf,testkey:2:video" class="w-full p-2 mb-4 border rounded"/>
+
+    <!-- Button -->
+    <button onclick="generateOutput()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Generate Output</button>
+
+    <!-- Output Area -->
+    <div id="outputSection" class="mt-6 hidden">
+      <h2 class="text-xl font-semibold mb-2">Formatted Output (Tab-Separated):</h2>
+      <textarea id="outputArea" class="w-full h-64 p-3 border border-gray-300 rounded mb-4 font-mono" readonly></textarea>
+      <button onclick="copyOutput()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Copy to Clipboard</button>
+    </div>
+  </div>
+
+  <script>
+    const chapters = {
+      physics: ["Motion in Plane", "Laws of Motion", "Gravitation"],
+      zoology: ["Animal Kingdom", "Human Physiology"],
+      botany: ["Plant Physiology", "Genetics"],
+      inorganic_chemistry: ["Periodic Table", "Chemical Bonding"],
+      organic_chemistry: ["Hydrocarbons", "Alcohols and Ethers"],
+      physical_chemistry: ["Mole Concept", "Thermodynamics"]
     };
 
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-    const dataContainer = document.getElementById('data');
-
-    function renderData(data) {
-      dataContainer.innerHTML = '';
-      for (const batch in data.batches) {
-        const batchDiv = document.createElement('div');
-        batchDiv.className = "p-4 border rounded bg-white shadow mb-4";
-        batchDiv.innerHTML = `<h2 class="text-xl font-bold mb-2">Batch: ${batch}</h2>`;
-        const subjects = data.batches[batch];
-
-        for (const subject in subjects) {
-          const subjectDiv = document.createElement('div');
-          subjectDiv.className = "ml-4 mb-2";
-          subjectDiv.innerHTML = `<h3 class="text-lg font-semibold">${subject}
-            <button onclick="deleteSubject('${batch}', '${subject}')" class="ml-2 text-red-600 text-sm">[Delete Subject]</button>
-          </h3>`;
-          const chapters = subjects[subject];
-
-          for (const chapter in chapters) {
-            const chapterDiv = document.createElement('div');
-            chapterDiv.className = "ml-6 mb-2 p-2 border rounded bg-gray-50";
-            chapterDiv.innerHTML = `<strong>${chapter}</strong>
-              <button onclick="deleteChapter('${batch}', '${subject}', '${chapter}')" class="ml-2 text-red-500 text-sm">[Delete Chapter]</button>`;
-
-            const keys = chapters[chapter]["keys"];
-            for (const key in keys) {
-              const inputId = `input-${batch}-${subject}-${chapter}-${key}`;
-              chapterDiv.innerHTML += `
-                <div class="ml-4 mt-1">
-                  ${key}:
-                  <input type="number" id="${inputId}" value="${keys[key]}" class="border px-2 py-1 rounded w-20">
-                  <button onclick="saveKey('${batch}', '${subject}', '${chapter}', '${key}', '${inputId}')" class="bg-blue-500 text-white px-2 py-1 rounded ml-2">Save</button>
-                  <button onclick="deleteKey('${batch}', '${subject}', '${chapter}', '${key}')" class="bg-red-500 text-white px-2 py-1 rounded ml-2">Delete</button>
-                </div>`;
-            }
-
-            // Add new key UI
-            chapterDiv.innerHTML += `
-              <div class="ml-4 mt-2">
-                <input id="newKey-${batch}-${subject}-${chapter}" placeholder="New Key" class="border px-2 py-1 rounded w-32">
-                <input id="newVal-${batch}-${subject}-${chapter}" placeholder="Value" type="number" class="border px-2 py-1 rounded w-20 ml-2">
-                <button onclick="addKey('${batch}', '${subject}', '${chapter}')" class="bg-green-600 text-white px-2 py-1 rounded ml-2">Add Key</button>
-              </div>`;
-
-            subjectDiv.appendChild(chapterDiv);
-          }
-
-          // Add new chapter UI
-          subjectDiv.innerHTML += `
-            <div class="ml-6 mt-2">
-              <input id="newChapter-${batch}-${subject}" placeholder="New Chapter" class="border px-2 py-1 rounded w-48">
-              <button onclick="addChapter('${batch}', '${subject}')" class="bg-purple-600 text-white px-2 py-1 rounded ml-2">Add Chapter</button>
-            </div>`;
-
-          batchDiv.appendChild(subjectDiv);
-        }
-
-        // Add new subject UI
-        batchDiv.innerHTML += `
-          <div class="ml-4 mt-2">
-            <input id="newSubject-${batch}" placeholder="New Subject" class="border px-2 py-1 rounded w-48">
-            <button onclick="addSubject('${batch}')" class="bg-yellow-600 text-white px-2 py-1 rounded ml-2">Add Subject</button>
-          </div>`;
-
-        dataContainer.appendChild(batchDiv);
-      }
-    }
-
-    function fetchData() {
-      const rootRef = ref(db);
-      onValue(rootRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) renderData(data);
-      });
-    }
-
-    window.saveKey = function (batch, subject, chapter, key, inputId) {
-      const newVal = parseInt(document.getElementById(inputId).value);
-      const keyRef = ref(db, `batches/${batch}/${subject}/${chapter}/keys/${key}`);
-      set(keyRef, newVal);
-    };
-
-    window.addKey = function (batch, subject, chapter) {
-      const keyInput = document.getElementById(`newKey-${batch}-${subject}-${chapter}`);
-      const valInput = document.getElementById(`newVal-${batch}-${subject}-${chapter}`);
-      const key = keyInput.value.trim();
-      const val = parseInt(valInput.value);
-
-      if (key && !isNaN(val)) {
-        const newKeyRef = ref(db, `batches/${batch}/${subject}/${chapter}/keys/${key}`);
-        set(newKeyRef, val).then(() => {
-          keyInput.value = '';
-          valInput.value = '';
+    function updateChapters() {
+      const subject = document.getElementById('subjectSelect').value;
+      const chapterSelect = document.getElementById('chapterSelect');
+      chapterSelect.innerHTML = '<option value="">-- Choose Chapter --</option>';
+      if (chapters[subject]) {
+        chapters[subject].forEach(chapter => {
+          const opt = document.createElement("option");
+          opt.value = chapter;
+          opt.textContent = chapter;
+          chapterSelect.appendChild(opt);
         });
       }
-    };
+    }
 
-    window.addChapter = function (batch, subject) {
-      const input = document.getElementById(`newChapter-${batch}-${subject}`);
-      const chapter = input.value.trim();
-      if (chapter) {
-        const newChapterRef = ref(db, `batches/${batch}/${subject}/${chapter}/keys`);
-        set(newChapterRef, {}).then(() => input.value = '');
+    function generateOutput() {
+      const subject = document.getElementById('subjectSelect').value;
+      const keyInput = document.getElementById('keyInput').value;
+      if (!subject || !keyInput) {
+        alert("Please select subject and enter keys.");
+        return;
       }
-    };
 
-    window.addSubject = function (batch) {
-      const input = document.getElementById(`newSubject-${batch}`);
-      const subject = input.value.trim();
-      if (subject) {
-        const newSubjectRef = ref(db, `batches/${batch}/${subject}`);
-        set(newSubjectRef, {}).then(() => input.value = '');
+      const entries = keyInput.split(',').map(k => k.trim()).filter(Boolean);
+      let result = "";
+
+      for (const entry of entries) {
+        const [keyword, messageId, format] = entry.split(':');
+        if (keyword && messageId && format) {
+          result += `${keyword}\t${messageId}\t${subject}\t${format}\n`;
+        }
       }
-    };
 
-    window.deleteKey = function (batch, subject, chapter, key) {
-      const keyRef = ref(db, `batches/${batch}/${subject}/${chapter}/keys/${key}`);
-      if (confirm(`Delete key "${key}"?`)) remove(keyRef);
-    };
+      document.getElementById('outputArea').value = result.trim();
+      document.getElementById('outputSection').classList.remove('hidden');
+    }
 
-    window.deleteChapter = function (batch, subject, chapter) {
-      const chapterRef = ref(db, `batches/${batch}/${subject}/${chapter}`);
-      if (confirm(`Delete chapter "${chapter}"?`)) remove(chapterRef);
-    };
-
-    window.deleteSubject = function (batch, subject) {
-      const subjectRef = ref(db, `batches/${batch}/${subject}`);
-      if (confirm(`Delete subject "${subject}"?`)) remove(subjectRef);
-    };
-
-    fetchData();
+    function copyOutput() {
+      const output = document.getElementById('outputArea');
+      output.select();
+      document.execCommand('copy');
+      alert("Copied to clipboard! Paste into Google Sheets.");
+    }
   </script>
-</head>
-<body class="bg-gray-100 min-h-screen p-6">
-  <h1 class="text-2xl font-bold mb-4">Firebase Realtime Database Editor</h1>
-  <div id="data" class="space-y-4"></div>
 </body>
 </html>
