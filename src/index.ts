@@ -5,8 +5,7 @@ import { db, ref, push, set, onValue } from './utils/firebase';
 import { DataSnapshot } from 'firebase/database';
 import { saveToSheet } from './utils/saveToSheet';
 import { about } from './commands';
-import { quizes, greeting } from './text';
-import { yakeen } from './text/yakeen';
+import { quizes, greeting, yakeen } from './text'; // Added yakeen import
 import { development, production } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { quote } from './commands/quotes';
@@ -17,14 +16,13 @@ const debug = createDebug('bot:index');
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const CHANNEL_ID = process.env.CHANNEL_ID || '';
+const CHANNEL_ID = process.env.CHANNEL_ID || '-1002277073649'; // Added CHANNEL_ID from .env
 let accessToken: string | null = null;
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
-if (!CHANNEL_ID) throw new Error('CHANNEL_ID not provided!');
 const bot = new Telegraf(BOT_TOKEN);
 
-// Store pending question and publish submissions
+// Store pending question submissions
 interface PendingQuestion {
   subject: string;
   chapter: string;
@@ -40,15 +38,13 @@ interface PendingQuestion {
   awaitingChapterSelection?: boolean;
 }
 
+// Store pending publish submissions for /publish command
 interface PendingPublish {
-  batch?: string;
-  subject?: string;
-  chapter?: string;
-  awaitingBatchSelection?: boolean;
-  awaitingSubjectSelection?: boolean;
+  subject: string;
+  chapter: string;
   awaitingChapterSelection?: boolean;
   awaitingKeys?: boolean;
-  page?: number;
+  page?: number; // For chapter pagination
 }
 
 const pendingSubmissions: { [key: number]: PendingQuestion } = {};
@@ -74,29 +70,18 @@ async function createTelegraphAccount() {
   }
 }
 
-async function createTelegraphPage(title: string, content: string | any[], page: number = 1, totalPages: number = 1, type: string = '', userId: number) {
+async function createTelegraphPage(title: string, content: string | any[]) {
   if (!accessToken) {
     await createTelegraphAccount();
   }
   try {
-    const buttons: any[] = [];
-    if (page > 1) {
-      buttons.push({ tag: 'a', attributes: { href: `#prev_${type}_${page - 1}_${userId}` }, children: ['Previous'] });
-    }
-    if (page < totalPages) {
-      buttons.push({ tag: 'a', attributes: { href: `#next_${type}_${page + 1}_${userId}` }, children: ['Next'] });
-    }
-    const telegraphContent = typeof content === 'string' ? [{ tag: 'p', children: [content] }] : content;
-    if (buttons.length) {
-      telegraphContent.push({ tag: 'p', children: buttons });
-    }
     const res = await fetch('https://api.telegra.ph/createPage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         access_token: accessToken,
-        title: `${title} (Page ${page})`,
-        content: telegraphContent,
+        title,
+        content: typeof content === 'string' ? [{ tag: 'p', children: [content] }] : content,
         return_content: true,
       }),
     });
@@ -112,7 +97,27 @@ async function createTelegraphPage(title: string, content: string | any[], page:
   }
 }
 
-// --- FETCH DATA FROM FIREBASE ---
+// --- FETCH CHAPTERS ---
+async function fetchChapters(subject: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    const subjectRef = ref(db, `questions/${subject.toLowerCase()}`);
+    onValue(
+      subjectRef,
+      (snapshot: DataSnapshot) => {
+        const data = snapshot.val();
+        debug('Fetched chapters for subject:', subject, 'data:', data);
+        const chapters = data ? Object.keys(data).filter((ch) => ch) : [];
+        resolve(chapters.sort());
+      },
+      (error: Error) => {
+        debug('Error fetching chapters:', error.message);
+        resolve([]);
+      }
+    );
+  });
+}
+
+// --- FETCH BATCHES ---
 async function fetchBatches(): Promise<string[]> {
   return new Promise((resolve) => {
     const batchesRef = ref(db, 'batches');
@@ -131,11 +136,12 @@ async function fetchBatches(): Promise<string[]> {
   });
 }
 
+// --- FETCH SUBJECTS ---
 async function fetchSubjects(batch: string): Promise<string[]> {
   return new Promise((resolve) => {
-    const subjectsRef = ref(db, `batches/${batch}`);
+    const subjectRef = ref(db, `batches/${batch}`);
     onValue(
-      subjectsRef,
+      subjectRef,
       (snapshot: DataSnapshot) => {
         const data = snapshot.val();
         const subjects = data ? Object.keys(data).filter((s) => s) : [];
@@ -149,45 +155,10 @@ async function fetchSubjects(batch: string): Promise<string[]> {
   });
 }
 
-async function fetchChapters(batch: string, subject: string): Promise<string[]> {
-  return new Promise((resolve) => {
-    const chaptersRef = ref(db, `batches/${batch}/${subject}`);
-    onValue(
-      chaptersRef,
-      (snapshot: DataSnapshot) => {
-        const data = snapshot.val();
-        const chapters = data ? Object.keys(data).filter((ch) => ch !== 'keys') : [];
-        resolve(chapters.sort());
-      },
-      (error: Error) => {
-        debug('Error fetching chapters:', error.message);
-        resolve([]);
-      }
-    );
-  });
-}
-
-async function fetchKey(batch: string, subject: string, chapter: string, key: string): Promise<number | null> {
-  return new Promise((resolve) => {
-    const keyRef = ref(db, `batches/${batch}/${subject}/${chapter}/keys/${key}`);
-    onValue(
-      keyRef,
-      (snapshot: DataSnapshot) => {
-        const messageId = snapshot.val();
-        resolve(messageId || null);
-      },
-      (error: Error) => {
-        debug('Error fetching key:', error.message);
-        resolve(null);
-      }
-    );
-  });
-}
-
 // --- COMMANDS ---
 bot.command('about', about());
 bot.command('quote', quote());
-bot.command(/yakeen_.+/, yakeen(CHANNEL_ID));
+bot.command('yakeen', yakeen()); // Added yakeen command
 
 bot.command('users', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) {
@@ -342,7 +313,7 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
     chapter = 'random';
   }
 
-  const chapters = await fetchChapters('2026', subject);
+  const chapters = await fetchChapters(subject);
   if (chapters.length === 0) {
     return ctx.reply(
       `❌ No chapters found for ${subject}. Please specify a chapter manually using /add${subject}_<chapter> <count>\n` +
@@ -350,14 +321,9 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
     );
   }
 
-  const itemsPerPage = 10;
-  const totalPages = Math.ceil(chapters.length / itemsPerPage);
-  const page = 1;
-  const start = (page - 1) * itemsPerPage;
-  const end = start + itemsPerPage;
-  const chaptersList = chapters.slice(start, end).map((ch, index) => `${start + index + 1}. ${ch}`).join('\n');
+  const chaptersList = chapters.map((ch, index) => `${index + 1}. ${ch}`).join('\n');
   const telegraphContent = `Chapters for ${subject}:\n${chaptersList}`;
-  const telegraphUrl = await createTelegraphPage(`Chapters for ${subject}`, telegraphContent, page, totalPages, 'chapter', ctx.from.id);
+  const telegraphUrl = await createTelegraphPage(`Chapters for ${subject}`, telegraphContent);
 
   pendingSubmissions[ctx.from.id] = {
     subject,
@@ -373,6 +339,7 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
   await ctx.reply(replyText, { parse_mode: 'Markdown' });
 });
 
+// --- PUBLISH COMMAND ---
 bot.command('publish', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) {
     return ctx.reply('You are not authorized to use this command.');
@@ -380,20 +347,18 @@ bot.command('publish', async (ctx) => {
 
   const batches = await fetchBatches();
   if (batches.length === 0) {
-    return ctx.reply('❌ No batches found in Firebase.');
+    return ctx.reply('No batches found in Firebase.');
   }
 
-  const itemsPerPage = 10;
-  const totalPages = Math.ceil(batches.length / itemsPerPage);
-  const page = 1;
-  const start = (page - 1) * itemsPerPage;
-  const end = start + itemsPerPage;
-  const batchesList = batches.slice(start, end).map((b, index) => `${start + index + 1}. ${b}`).join('\n');
+  const batchesList = batches.map((b, index) => `${index + 1}. ${b}`).join('\n');
   const telegraphContent = `Batches:\n${batchesList}`;
-  const telegraphUrl = await createTelegraphPage('Batches', telegraphContent, page, totalPages, 'batch', ctx.from.id);
+  const telegraphUrl = await createTelegraphPage('Batches', telegraphContent);
 
   pendingPublishes[ctx.from.id] = {
-    awaitingBatchSelection: true,
+    subject: '',
+    chapter: '',
+    awaitingChapterSelection: false,
+    awaitingKeys: false,
     page: 1,
   };
 
@@ -465,142 +430,229 @@ bot.on('message', async (ctx) => {
     return;
   }
 
-  // Handle publish flow
-  if (chat.id === ADMIN_ID && pendingPublishes[chat.id] && msg.text) {
-    const publish = pendingPublishes[chat.id];
-
-    if (publish.awaitingBatchSelection) {
-      const batches = await fetchBatches();
-      const itemsPerPage = 10;
-      const totalPages = Math.ceil(batches.length / itemsPerPage);
-      const batchNumber = parseInt(msg.text.trim(), 10);
-
-      if (isNaN(batchNumber) || batchNumber < 1 || batchNumber > batches.length) {
-        await ctx.reply(`Please enter a valid batch number between 1 and ${batches.length}.`);
-        return;
-      }
-
-      publish.batch = batches[batchNumber - 1];
-      publish.awaitingBatchSelection = false;
-      publish.awaitingSubjectSelection = true;
-      publish.page = 1;
-
-      const subjects = await fetchSubjects(publish.batch);
-      if (subjects.length === 0) {
-        await ctx.reply(`❌ No subjects found for batch *${publish.batch}*.`);
-        delete pendingPublishes[chat.id];
-        return;
-      }
-
-      const subjectsList = subjects.map((s, index) => `${index + 1}. ${s}`).join('\n');
-      const telegraphContent = `Subjects for ${publish.batch}:\n${subjectsList}`;
-      const telegraphUrl = await createTelegraphPage(`Subjects for ${publish.batch}`, telegraphContent, 1, Math.ceil(subjects.length / itemsPerPage), 'subject', ctx.from.id);
-
-      await ctx.reply(
-        `Selected batch: *${publish.batch}*. Please select a subject by replying with the subject number:\n\n${subjectsList}\n\n` +
-        (telegraphUrl ? `📖 View subjects on Telegraph: ${telegraphUrl}` : ''),
-        { parse_mode: 'Markdown' }
-      );
+  // Handle batch selection for /publish
+  if (chat.id === ADMIN_ID && pendingPublishes[chat.id] && !pendingPublishes[chat.id].subject && msg.text) {
+    const batchNumber = parseInt(msg.text.trim(), 10);
+    const batches = await fetchBatches();
+    if (isNaN(batchNumber) || batchNumber < 1 || batchNumber > batches.length) {
+      await ctx.reply(`Please enter a valid batch number between 1 and ${batches.length}.`);
       return;
     }
 
-    if (publish.awaitingSubjectSelection) {
-      const subjects = await fetchSubjects(publish.batch!);
-      const itemsPerPage = 10;
-      const totalPages = Math.ceil(subjects.length / itemsPerPage);
-      const subjectNumber = parseInt(msg.text.trim(), 10);
-
-      if (isNaN(subjectNumber) || subjectNumber < 1 || subjectNumber > subjects.length) {
-        await ctx.reply(`Please enter a valid subject number between 1 and ${subjects.length}.`);
-        return;
-      }
-
-      publish.subject = subjects[subjectNumber - 1];
-      publish.awaitingSubjectSelection = false;
-      publish.awaitingChapterSelection = true;
-      publish.page = 1;
-
-      const chapters = await fetchChapters(publish.batch!, publish.subject);
-      if (chapters.length === 0) {
-        await ctx.reply(`❌ No chapters found for *${publish.subject}* in batch *${publish.batch}*.`);
-        delete pendingPublishes[chat.id];
-        return;
-      }
-
-      const chaptersList = chapters.map((ch, index) => `${index + 1}. ${ch}`).join('\n');
-      const telegraphContent = `Chapters for ${publish.subject}:\n${chaptersList}`;
-      const telegraphUrl = await createTelegraphPage(`Chapters for ${publish.subject}`, telegraphContent, 1, Math.ceil(chapters.length / itemsPerPage), 'chapter', ctx.from.id);
-
-      await ctx.reply(
-        `Selected subject: *${publish.subject}*. Please select a chapter by replying with the chapter number:\n\n${chaptersList}\n\n` +
-        (telegraphUrl ? `📖 View chapters on Telegraph: ${telegraphUrl}` : ''),
-        { parse_mode: 'Markdown' }
-      );
-      return;
-    }
-
-    if (publish.awaitingChapterSelection) {
-      const chapters = await fetchChapters(publish.batch!, publish.subject!);
-      const itemsPerPage = 10;
-      const totalPages = Math.ceil(chapters.length / itemsPerPage);
-      const chapterNumber = parseInt(msg.text.trim(), 10);
-
-      if (isNaN(chapterNumber) || chapterNumber < 1 || chapterNumber > chapters.length) {
-        await ctx.reply(`Please enter a valid chapter number between 1 and ${chapters.length}.`);
-        return;
-      }
-
-      publish.chapter = chapters[chapterNumber - 1];
-      publish.awaitingChapterSelection = false;
-      publish.awaitingKeys = true;
-
-      await ctx.reply(
-        `Selected chapter: *${publish.chapter}* for *${publish.subject}* in batch *${publish.batch}*. ` +
-        `Please send the keys with message IDs in the format: key1:2,key_of_example:3`,
-        { parse_mode: 'Markdown' }
-      );
-      return;
-    }
-
-    if (publish.awaitingKeys) {
-      const keysInput = msg.text.trim();
-      const keyPairs = keysInput.split(',').map((pair: string) => {
-        const [key, messageId] = pair.split(':').map((s: string) => s.trim());
-        return { key, messageId: parseInt(messageId, 10) };
-      });
-
-      let validKeys = 0;
-      for (const { key, messageId } of keyPairs) {
-        if (!key || isNaN(messageId)) {
-          await ctx.reply(`Invalid key or message ID: ${key}:${messageId}`);
-          continue;
-        }
-        try {
-          const keyRef = ref(db, `batches/${publish.batch}/${publish.subject}/${publish.chapter}/keys/${key}`);
-          await set(keyRef, messageId);
-          validKeys++;
-        } catch (error) {
-          debug('Failed to save key:', error);
-          await ctx.reply(`Failed to save key: ${key}`);
-        }
-      }
-
-      if (validKeys > 0) {
-        await ctx.reply(`✅ Successfully saved ${validKeys} keys to *${publish.batch}/${publish.subject}/${publish.chapter}*.`);
-      } else {
-        await ctx.reply('❌ No valid keys were saved.');
-      }
+    pendingPublishes[chat.id].subject = batches[batchNumber - 1].toLowerCase();
+    const subjects = await fetchSubjects(pendingPublishes[chat.id].subject);
+    if (subjects.length === 0) {
+      await ctx.reply(`No subjects found for batch ${pendingPublishes[chat.id].subject}.`);
       delete pendingPublishes[chat.id];
       return;
     }
+
+    const subjectsList = subjects.map((s, index) => `${index + 1}. ${s}`).join('\n');
+    const telegraphContent = `Subjects for ${pendingPublishes[chat.id].subject}:\n${subjectsList}`;
+    const telegraphUrl = await createTelegraphPage(`Subjects for ${pendingPublishes[chat.id].subject}`, telegraphContent);
+
+    const replyText = `Please select a subject for *${pendingPublishes[chat.id].subject}* by replying with the subject number:\n\n${subjectsList}\n\n` +
+      (telegraphUrl ? `📖 View subjects on Telegraph: ${telegraphUrl}` : '');
+    await ctx.reply(replyText, { parse_mode: 'Markdown' });
+    return;
   }
 
-  // Handle question submission flow
+  // Handle subject selection for /publish
+  if (chat.id === ADMIN_ID && pendingPublishes[chat.id]?.subject && !pendingPublishes[chat.id].chapter && msg.text) {
+    const subjectNumber = parseInt(msg.text.trim(), 10);
+    const subjects = await fetchSubjects(pendingPublishes[chat.id].subject);
+    if (isNaN(subjectNumber) || subjectNumber < 1 || subjectNumber > subjects.length) {
+      await ctx.reply(`Please enter a valid subject number between 1 and ${subjects.length}.`);
+      return;
+    }
+
+    pendingPublishes[chat.id].subject = subjects[subjectNumber - 1].toLowerCase();
+    const chapters = await fetchChapters(pendingPublishes[chat.id].subject);
+    if (chapters.length === 0) {
+      await ctx.reply(`No chapters found for ${pendingPublishes[chat.id].subject}.`);
+      delete pendingPublishes[chat.id];
+      return;
+    }
+
+    pendingPublishes[chat.id].awaitingChapterSelection = true;
+    pendingPublishes[chat.id].page = 1;
+
+    const ITEMS_PER_PAGE = 10;
+    const start = (pendingPublishes[chat.id].page - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    const paginatedChapters = chapters.slice(start, end);
+    const chaptersList = paginatedChapters.map((ch, index) => `${start + index + 1}. ${ch}`).join('\n');
+    const telegraphContent = `Chapters for ${pendingPublishes[chat.id].subject}:\n${chapters.map((ch, index) => `${index + 1}. ${ch}`).join('\n')}`;
+    const telegraphUrl = await createTelegraphPage(`Chapters for ${pendingPublishes[chat.id].subject}`, telegraphContent);
+
+    const inlineKeyboard = [];
+    if (chapters.length > ITEMS_PER_PAGE) {
+      const buttons = [];
+      if (pendingPublishes[chat.id].page > 1) {
+        buttons.push({ text: 'Previous', callback_data: `prev_page_${pendingPublishes[chat.id].subject}` });
+      }
+      if (end < chapters.length) {
+        buttons.push({ text: 'Next', callback_data: `next_page_${pendingPublishes[chat.id].subject}` });
+      }
+      inlineKeyboard.push(buttons);
+    }
+
+    const replyText = `Please select a chapter for *${pendingPublishes[chat.id].subject}* by replying with the chapter number:\n\n${chaptersList}\n\n` +
+      (telegraphUrl ? `📖 View chapters on Telegraph: ${telegraphUrl}` : '');
+    await ctx.reply(replyText, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: inlineKeyboard },
+    });
+    return;
+  }
+
+  // Handle chapter selection for /publish
+  if (chat.id === ADMIN_ID && pendingPublishes[chat.id]?.awaitingChapterSelection && msg.text) {
+    const chapterNumber = parseInt(msg.text.trim(), 10);
+    const chapters = await fetchChapters(pendingPublishes[chat.id].subject);
+    const start = (pendingPublishes[chat.id].page - 1) * 10;
+    if (isNaN(chapterNumber) || chapterNumber < start + 1 || chapterNumber > start + Math.min(10, chapters.length - start)) {
+      await ctx.reply(`Please enter a valid chapter number between ${start + 1} and ${start + Math.min(10, chapters.length)}.`);
+      return;
+    }
+
+    pendingPublishes[chat.id].chapter = chapters[chapterNumber - 1].toLowerCase();
+    pendingPublishes[chat.id].awaitingChapterSelection = false;
+    pendingPublishes[chat.id].awaitingKeys = true;
+
+    await ctx.reply(
+      `Selected chapter: *${pendingPublishes[chat.id].chapter}* for *${pendingPublishes[chat.id].subject}*. ` +
+      `Please send keys with message IDs in the format: key1:id1,key2:id2,...`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  // Handle chapter pagination for /publish
+  bot.action(/prev_page_(.+)/, async (ctx) => {
+    if (ctx.from?.id !== ADMIN_ID) {
+      await ctx.answerCbQuery('Unauthorized');
+      return;
+    }
+
+    const subject = ctx.match[1];
+    if (!pendingPublishes[ctx.from.id] || pendingPublishes[ctx.from.id].subject !== subject) {
+      await ctx.answerCbQuery('Session expired');
+      return;
+    }
+
+    pendingPublishes[ctx.from.id].page = Math.max(1, pendingPublishes[ctx.from.id].page - 1);
+    const chapters = await fetchChapters(subject);
+    const ITEMS_PER_PAGE = 10;
+    const start = (pendingPublishes[ctx.from.id].page - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    const paginatedChapters = chapters.slice(start, end);
+    const chaptersList = paginatedChapters.map((ch, index) => `${start + index + 1}. ${ch}`).join('\n');
+    const telegraphContent = `Chapters for ${subject}:\n${chapters.map((ch, index) => `${index + 1}. ${ch}`).join('\n')}`;
+    const telegraphUrl = await createTelegraphPage(`Chapters for ${subject}`, telegraphContent);
+
+    const inlineKeyboard = [];
+    if (chapters.length > ITEMS_PER_PAGE) {
+      const buttons = [];
+      if (pendingPublishes[ctx.from.id].page > 1) {
+        buttons.push({ text: 'Previous', callback_data: `prev_page_${subject}` });
+      }
+      if (end < chapters.length) {
+        buttons.push({ text: 'Next', callback_data: `next_page_${subject}` });
+      }
+      inlineKeyboard.push(buttons);
+    }
+
+    await ctx.editMessageText(
+      `Please select a chapter for *${subject}* by replying with the chapter number:\n\n${chaptersList}\n\n` +
+      (telegraphUrl ? `📖 View chapters on Telegraph: ${telegraphUrl}` : ''),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: inlineKeyboard },
+      }
+    );
+    await ctx.answerCbQuery('Previous page');
+  });
+
+  bot.action(/next_page_(.+)/, async (ctx) => {
+    if (ctx.from?.id !== ADMIN_ID) {
+      await ctx.answerCbQuery('Unauthorized');
+      return;
+    }
+
+    const subject = ctx.match[1];
+    if (!pendingPublishes[ctx.from.id] || pendingPublishes[ctx.from.id].subject !== subject) {
+      await ctx.answerCbQuery('Session expired');
+      return;
+    }
+
+    pendingPublishes[ctx.from.id].page += 1;
+    const chapters = await fetchChapters(subject);
+    const ITEMS_PER_PAGE = 10;
+    const start = (pendingPublishes[ctx.from.id].page - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    const paginatedChapters = chapters.slice(start, end);
+    const chaptersList = paginatedChapters.map((ch, index) => `${start + index + 1}. ${ch}`).join('\n');
+    const telegraphContent = `Chapters for ${subject}:\n${chapters.map((ch, index) => `${index + 1}. ${ch}`).join('\n')}`;
+    const telegraphUrl = await createTelegraphPage(`Chapters for ${subject}`, telegraphContent);
+
+    const inlineKeyboard = [];
+    if (chapters.length > ITEMS_PER_PAGE) {
+      const buttons = [];
+      if (pendingPublishes[ctx.from.id].page > 1) {
+        buttons.push({ text: 'Previous', callback_data: `prev_page_${subject}` });
+      }
+      if (end < chapters.length) {
+        buttons.push({ text: 'Next', callback_data: `next_page_${subject}` });
+      }
+      inlineKeyboard.push(buttons);
+    }
+
+    await ctx.editMessageText(
+      `Please select a chapter for *${subject}* by replying with the chapter number:\n\n${chaptersList}\n\n` +
+      (telegraphUrl ? `📖 View chapters on Telegraph: ${telegraphUrl}` : ''),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: inlineKeyboard },
+      }
+    );
+    await ctx.answerCbQuery('Next page');
+  });
+
+  // Handle keys submission for /publish
+  if (chat.id === ADMIN_ID && pendingPublishes[chat.id]?.awaitingKeys && msg.text) {
+    const keysInput = msg.text.trim();
+    const keyPairs = keysInput.split(',').map((pair: string) => pair.trim().split(':'));
+    const validKeys: { [key: string]: string } = {};
+
+    for (const [key, id] of keyPairs) {
+      if (!key || isNaN(parseInt(id))) {
+        await ctx.reply(`Invalid key or ID: ${key}:${id}. Please use format key1:id1,key2:id2,...`);
+        return;
+      }
+      validKeys[key] = id;
+    }
+
+    try {
+      const keysRef = ref(db, `batches/${pendingPublishes[chat.id].subject}/${pendingPublishes[chat.id].chapter}/keys`);
+      await set(keysRef, { ...validKeys });
+      await ctx.reply(
+        `✅ Successfully added ${Object.keys(validKeys).length} keys to *${pendingPublishes[chat.id].subject}* (Chapter: *${pendingPublishes[chat.id].chapter}*).`
+      );
+      delete pendingPublishes[chat.id];
+    } catch (error) {
+      debug('Failed to save keys to Firebase:', error);
+      await ctx.reply('❌ Error: Unable to save keys to Firebase.');
+    }
+    return;
+  }
+
+  // Handle chapter selection for /add
   if (chat.id === ADMIN_ID && pendingSubmissions[chat.id]?.awaitingChapterSelection && msg.text) {
     const submission = pendingSubmissions[ctx.from.id];
     const chapterNumber = parseInt(msg.text.trim(), 10);
 
-    const chapters = await fetchChapters('2026', submission.subject);
+    const chapters = await fetchChapters(submission.subject);
     if (isNaN(chapterNumber) || chapterNumber < 1 || chapterNumber > chapters.length) {
       await ctx.reply(`Please enter a valid chapter number between 1 and ${chapters.length}.`);
       return;
