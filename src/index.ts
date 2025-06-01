@@ -6,7 +6,7 @@ import { DataSnapshot } from 'firebase/database';
 import { saveToSheet } from './utils/saveToSheet';
 import { about } from './commands';
 import { quizes, greeting } from './text';
-import { yakeen } from './text/yakeen'; // Add yakeen command
+import { yakeen } from './text/yakeen';
 import { development, production } from './core';
 import { isPrivateChat } from './utils/groupSettings';
 import { quote } from './commands/quotes';
@@ -17,7 +17,7 @@ const debug = createDebug('bot:index');
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ENVIRONMENT = process.env.NODE_ENV || '';
 const ADMIN_ID = 6930703214;
-const CHANNEL_ID = process.env.CHANNEL_ID || ''; // Add CHANNEL_ID from .env
+const CHANNEL_ID = process.env.CHANNEL_ID || '';
 let accessToken: string | null = null;
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
@@ -48,7 +48,7 @@ interface PendingPublish {
   awaitingSubjectSelection?: boolean;
   awaitingChapterSelection?: boolean;
   awaitingKeys?: boolean;
-  page?: number; // For pagination
+  page?: number;
 }
 
 const pendingSubmissions: { [key: number]: PendingQuestion } = {};
@@ -187,7 +187,7 @@ async function fetchKey(batch: string, subject: string, chapter: string, key: st
 // --- COMMANDS ---
 bot.command('about', about());
 bot.command('quote', quote());
-bot.command(/yakeen_.+/, yakeen(CHANNEL_ID)); // Add yakeen command
+bot.command(/yakeen_.+/, yakeen(CHANNEL_ID));
 
 bot.command('users', async (ctx) => {
   if (ctx.from?.id !== ADMIN_ID) {
@@ -342,7 +342,7 @@ bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
     chapter = 'random';
   }
 
-  const chapters = await fetchChapters('2026', subject); // Default batch for questions
+  const chapters = await fetchChapters('2026', subject);
   if (chapters.length === 0) {
     return ctx.reply(
       `❌ No chapters found for ${subject}. Please specify a chapter manually using /add${subject}_<chapter> <count>\n` +
@@ -564,8 +564,8 @@ bot.on('message', async (ctx) => {
 
     if (publish.awaitingKeys) {
       const keysInput = msg.text.trim();
-      const keyPairs = keysInput.split(',').map((pair) => {
-        const [key, messageId] = pair.split(':').map((s) => s.trim());
+      const keyPairs = keysInput.split(',').map((pair: string) => {
+        const [key, messageId] = pair.split(':').map((s: string) => s.trim());
         return { key, messageId: parseInt(messageId, 10) };
       });
 
@@ -600,7 +600,7 @@ bot.on('message', async (ctx) => {
     const submission = pendingSubmissions[ctx.from.id];
     const chapterNumber = parseInt(msg.text.trim(), 10);
 
-    const chapters = await fetchChapters('2026', submission.subject); // Default batch for questions
+    const chapters = await fetchChapters('2026', submission.subject);
     if (isNaN(chapterNumber) || chapterNumber < 1 || chapterNumber > chapters.length) {
       await ctx.reply(`Please enter a valid chapter number between 1 and ${chapters.length}.`);
       return;
