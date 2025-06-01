@@ -1,520 +1,309 @@
-import { Telegraf, Context } from 'telegraf';
-import { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAllChatIds, saveChatId, fetchChatIdsFromSheet } from './utils/chatStore';
-import { db, ref, push, set, onValue } from './utils/firebase';
-import { DataSnapshot } from 'firebase/database';
-import { saveToSheet } from './utils/saveToSheet';
-import { about } from './commands';
-import { quizes, greeting } from './text'; // Fixed import
-import { development, production } from './core';
-import { isPrivateChat } from './utils/groupSettings';
-import { quote } from './commands/quotes';
+import { Telegraf } from 'telegraf';
+import { db, ref, set, get, DataSnapshot } from '../utils/firebase';
+import { ADMIN_ID, CHANNEL_ID } from '../config';
+import { Context } from 'telegraf';
 import createDebug from 'debug';
-import { setupYakeenCommands } from './text/yakeen';
-import { CHANNEL_ID } from './config';
 
-const debug = createDebug('bot:index');
+const debug = createDebug('bot:yakeen');
 
-const BOT_TOKEN = process.env.BOT_TOKEN || '';
-const ENVIRONMENT = process.env.NODE_ENV || '';
-const ADMIN_ID = 6930703214;
-let accessToken: string | null = null;
-
-if (!BOT_TOKEN) throw new Error('BOT_TOKEN not provided!');
-const bot = new Telegraf(BOT_TOKEN);
-
-// Store pending question submissions
-interface PendingQuestion {
-  subject: string;
-  chapter: string;
-  count: number;
-  questions: Array<{
-    question: string;
-    options: { [key: string]: string };
-    correct_option: string;
-    explanation: string;
-    image?: string;
-  }>;
-  expectingImageFor?: string;
-  awaitingChapterSelection?: boolean;
-}
-
-const pendingSubmissions: { [key: number]: PendingQuestion } = {};
-
-// --- TELEGRAPH INTEGRATION ---
-async function createTelegraphAccount() {
-  try {
-    const res = await fetch('https://api.telegra.ph/createAccount', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ short_name: 'EduhubBot', author_name: 'Eduhub KMR Bot' }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      accessToken = data.result.access_token;
-      debug('Telegraph account created, access token:', accessToken);
-    } else {
-      throw new Error(data.error);
-    }
-  } catch (error) {
-    debug('Failed to create Telegraph account:', error);
-  }
-}
-
-async function createTelegraphPage(title: string, content: string | any[]) {
-  if (!accessToken) {
-    await createTelegraphAccount();
-  }
-  try {
-    const res = await fetch('https://api.telegra.ph/createPage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_token: accessToken,
-        title,
-        content: typeof content === 'string' ? [{ tag: 'p', children: [content] }] : content,
-        return_content: true,
-      }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      return data.result.url;
-    } else {
-      throw new Error(data.error);
-    }
-  } catch (error) {
-    debug('Failed to create Telegraph page:', error);
-    return null;
-  }
-}
-
-// --- FETCH CHAPTERS ---
-async function fetchChapters(subject: string): Promise<string[]> {
-  return new Promise((resolve) => {
-    const subjectRef = ref(db, `questions/${subject.toLowerCase()}`);
-    onValue(
-      subjectRef,
-      (snapshot: DataSnapshot) => {
-        const data = snapshot.val();
-        debug('Fetched chapters for subject:', subject, 'data:', data);
-        const chapters = data ? Object.keys(data).filter((ch) => ch) : [];
-        resolve(chapters.sort());
-      },
-      (error: Error) => {
-        debug('Error fetching chapters:', error.message);
-        resolve([]);
-      }
-    );
-  });
-}
-
-// --- COMMANDS ---
-bot.command('about', about());
-bot.command('quote', quote());
-
-bot.command('users', async (ctx) => {
-  if (ctx.from?.id !== ADMIN_ID) {
-    return ctx.reply('You are not authorized to use this command.');
-  }
-
-  try {
-    const chatIds = await fetchChatIdsFromSheet();
-    const totalUsers = chatIds.length;
-
-    await ctx.reply(
-      `📊 Total users: ${totalUsers}`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [[{ text: 'Refresh', callback_data: 'refresh_users' }]],
-        },
-      }
-    );
-  } catch (err) {
-    debug('Failed to fetch user count:', err);
-    await ctx.reply('❌ Error: Unable to fetch user count from Google Sheet.');
-  }
-});
-
-bot.action('refresh_users', async (ctx) => {
-  if (ctx.from?.id !== ADMIN_ID) {
-    await ctx.answerCbQuery('Unauthorized');
-    return;
-  }
-
-  try {
-    const chatIds = await fetchChatIdsFromSheet();
-    const totalUsers = chatIds.length;
-
-    await ctx.editMessageText(
-      `📊 Total users: ${totalUsers} (refreshed)`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [[{ text: 'Refresh', callback_data: 'refresh_users' }]],
-        },
-      }
-    );
-    await ctx.answerCbQuery('Refreshed!');
-  } catch (err) {
-    debug('Failed to refresh user count:', err);
-    await ctx.answerCbQuery('Refresh failed');
-  }
-});
-
-bot.command('broadcast', async (ctx) => {
-  if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized to use this command.');
-
-  const msg = ctx.message?.text?.split(' ').slice(1).join(' ');
-  if (!msg) return ctx.reply('Usage:\n/broadcast Your message here');
-
-  let chatIds: number[] = [];
-
-  try {
-    chatIds = await fetchChatIdsFromSheet();
-  } catch (err) {
-    debug('Failed to fetch chat IDs:', err);
-    return ctx.reply('❌ Error: Unable to fetch chat IDs from Google Sheet.');
-  }
-
-  if (chatIds.length === 0) {
-    return ctx.reply('No users to broadcast to.');
-  }
-
-  let success = 0;
-  for (const id of chatIds) {
-    try {
-      await ctx.telegram.sendMessage(id, msg);
-      success++;
-    } catch (err) {
-      debug(`Failed to send to ${id}:`, err);
-    }
-  }
-
-  await ctx.reply(`✅ Broadcast sent to ${success} users.`);
-});
-setupYakeenCommands(bot);
-
-bot.command('reply', async (ctx) => {
-  if (ctx.from?.id !== ADMIN_ID) return ctx.reply('You are not authorized to use this command.');
-
-  const parts = ctx.message?.text?.split(' ');
-  if (!parts || parts.length < 3) {
-    return ctx.reply('Usage:\n/reply <chat_id> [message]');
-  }
-
-  const chatIdStr = parts[1].trim();
-  const chatId = Number(chatIdStr);
-  const message = parts.slice(2).join(' ');
-
-  if (isNaN(chatId)) {
-    return ctx.reply(`Invalid chat ID: ${chatIdStr}`);
-  }
-
-  try {
-    await ctx.telegram.sendMessage(
-      chatId,
-      `*Admin's Reply:*\n${message}`,
-      { parse_mode: 'Markdown' }
-    );
-    await ctx.reply(`Reply sent to ${chatId}`, { parse_mode: 'Markdown' });
-  } catch (error) {
-    debug('Reply error:', error);
-    await ctx.reply(`Failed to send reply to ${chatId}`, { parse_mode: 'Markdown' });
-  }
-});
-
-bot.command(/add[A-Za-z]+(_[A-Za-z_]+)?/, async (ctx) => {
-  if (ctx.from?.id !== ADMIN_ID) {
-    return ctx.reply('You are not authorized to use this command.');
-  }
-
-  const command = ctx.message?.text?.split(' ')[0].substring(1);
-  const countStr = ctx.message?.text?.split(' ')[1];
-  const count = parseInt(countStr || '', 10);
-
-  if (!countStr || isNaN(count) || count <= 0) {
-    return ctx.reply('Please specify a valid number of questions.\nExample: /addBiology 10 or /addBiology_Living_World 10');
-  }
-
-  let subject = '';
-  let chapter = '';
-
-  if (command.includes('_')) {
-    const parts = command.split('_');
-    subject = parts[0].replace(/^add/, '').toLowerCase();
-    chapter = parts.slice(1).join(' ').replace(/_/g, ' ').toLowerCase();
-    pendingSubmissions[ctx.from.id] = {
-      subject,
-      chapter,
-      count,
-      questions: [],
-      expectingImageFor: undefined,
-      awaitingChapterSelection: false,
+interface BatchData {
+  [subject: string]: {
+    [chapter: string]: {
+      keys: {
+        [key: string]: number;
+      };
     };
-
-    await ctx.reply(
-      `Selected chapter: *${chapter}* for *${subject}*. ` +
-      `Please share ${count} questions as Telegram quiz polls. ` +
-      `Each poll should have the question, 4 options, a correct answer, and an explanation. ` +
-      `After sending a poll, you can optionally send an image URL for it.`,
-      { parse_mode: 'Markdown' }
-    );
-    return;
-  } else {
-    subject = command.replace(/^add/, '').toLowerCase();
-    chapter = 'random';
-  }
-
-  const chapters = await fetchChapters(subject);
-  if (chapters.length === 0) {
-    return ctx.reply(
-      `❌ No chapters found for ${subject}. Please specify a chapter manually using /add${subject}_<chapter> <count>\n` +
-      `Example: /add${subject}_Living_World 10`
-    );
-  }
-
-  const chaptersList = chapters.map((ch, index) => `${index + 1}. ${ch}`).join('\n');
-  const telegraphContent = `Chapters for ${subject}:\n${chaptersList}`;
-  const telegraphUrl = await createTelegraphPage(`Chapters for ${subject}`, telegraphContent);
-
-  pendingSubmissions[ctx.from.id] = {
-    subject,
-    chapter,
-    count,
-    questions: [],
-    expectingImageFor: undefined,
-    awaitingChapterSelection: true,
   };
+}
 
-  const replyText = `Please select a chapter for *${subject}* by replying with the chapter number:\n\n${chaptersList}\n\n` +
-    (telegraphUrl ? `📖 View chapters on Telegraph: ${telegraphUrl}` : '');
-  await ctx.reply(replyText, { parse_mode: 'Markdown' });
-});
+interface PublishState {
+  subject?: string;
+  chapter?: string;
+  awaitingKeys?: boolean;
+}
 
-bot.start(async (ctx) => {
-  if (isPrivateChat(ctx.chat.type)) {
-    await ctx.reply('Welcome! Use /help to explore commands.');
-    await greeting()(ctx);
-  }
-});
+const publishStates: Record<number, PublishState> = {};
 
-bot.on('message', async (ctx) => {
-  const chat = ctx.chat;
-  const msg = ctx.message as any;
-  const chatType = chat.type;
-
-  if (!chat?.id) return;
-
-  saveChatId(chat.id);
-  const alreadyNotified = await saveToSheet(chat);
-
-  if (chat.id !== ADMIN_ID && !alreadyNotified) {
-    if (chat.type === 'private' && 'first_name' in chat) {
-      const usernameText = 'username' in chat && typeof chat.username === 'string' ? `@${chat.username}` : 'N/A';
-      await ctx.telegram.sendMessage(
-        ADMIN_ID,
-        `*New user started the bot!*\n\n*Name:* ${chat.first_name}\n*Username:* ${usernameText}\nChat ID: ${chat.id}`,
-        { parse_mode: 'Markdown' }
-      );
-    }
-  }
-
-  if (msg.text?.startsWith('/contact')) {
-    const userMessage = msg.text.replace('/contact', '').trim() || msg.reply_to_message?.text;
-    if (userMessage) {
-      const firstName = 'first_name' in chat ? chat.first_name : 'Unknown';
-      const username = 'username' in chat && typeof chat.username === 'string' ? `@${chat.username}` : 'N/A';
-
-      await ctx.telegram.sendMessage(
-        ADMIN_ID,
-        `*Contact Message from ${firstName} (${username})*\nChat ID: ${chat.id}\n\nMessage:\n${userMessage}`,
-        { parse_mode: 'Markdown' }
-      );
-      await ctx.reply('Your message has been sent to the admin!');
-    } else {
-      await ctx.reply('Please provide a message or reply to a message using /contact.');
-    }
-    return;
-  }
-
-  if (chat.id === ADMIN_ID && msg.reply_to_message?.text) {
-    const match = msg.reply_to_message.text.match(/Chat ID: (\d+)/);
-    if (match) {
-      const targetId = parseInt(match[1], 10);
-      try {
-        await ctx.telegram.sendMessage(
-          targetId,
-          `*Admin's Reply:*\n${msg.text}`,
-          { parse_mode: 'Markdown' }
-        );
-      } catch (err) {
-        debug('Failed to send swipe reply:', err);
-      }
-    }
-    return;
-  }
-
-  if (chat.id === ADMIN_ID && pendingSubmissions[chat.id]?.awaitingChapterSelection && msg.text) {
-    const submission = pendingSubmissions[ctx.from.id];
-    const chapterNumber = parseInt(msg.text.trim(), 10);
-
-    const chapters = await fetchChapters(submission.subject);
-    if (isNaN(chapterNumber) || chapterNumber < 1 || chapterNumber > chapters.length) {
-      await ctx.reply(`Please enter a valid chapter number between 1 and ${chapters.length}.`);
-      return;
-    }
-
-    submission.chapter = chapters[chapterNumber - 1].toLowerCase();
-    submission.awaitingChapterSelection = false;
-
-    await ctx.reply(
-      `Selected chapter: *${submission.chapter}* for *${submission.subject}*. ` +
-      `Please share ${submission.count} questions as Telegram quiz polls. ` +
-      `Each poll should have the question, 4 options, a correct answer, and an explanation. ` +
-      `After sending a poll, you can optionally send an image URL for it.`,
-      { parse_mode: 'Markdown' }
-    );
-    return;
-  }
-
-  if (chat.id === ADMIN_ID && pendingSubmissions[chat.id] && msg.poll) {
-    const submission = pendingSubmissions[chat.id];
-    const poll = msg.poll;
-
-    if (poll.type !== 'quiz') {
-      await ctx.reply('Please send a quiz poll with a correct answer and explanation.');
-      return;
-    }
-
-    if (poll.options.length !== 4) {
-      await ctx.reply('Quiz polls must have exactly 4 options.');
-      return;
-    }
-
-    if (!poll.explanation) {
-      await ctx.reply('Quiz polls must include an explanation.');
-      return;
-    }
-
-    const correctOptionIndex = poll.correct_option_id;
-    const correctOptionLetter = ['A', 'B', 'C', 'D'][correctOptionIndex];
-
-    const question = {
-      question: poll.question,
-      options: {
-        A: poll.options[0].text,
-        B: poll.options[1].text,
-        C: poll.options[2].text,
-        D: poll.options[3].text,
-      },
-      correct_option: correctOptionLetter,
-      explanation: poll.explanation,
-      image: '',
-    };
-
-    submission.questions.push(question);
-    submission.expectingImageFor = poll.id;
-
-    if (submission.questions.length < submission.count) {
-      await ctx.reply(
-        `Question ${submission.questions.length} saved. Please send an image URL for this question (or reply "skip" to proceed), ` +
-        `then send the next question (${submission.questions.length + 1}/${submission.count}) as a quiz poll.`
-      );
-    } else {
-      try {
-        for (const q of submission.questions) {
-          const questionsRef = ref(db, `questions/${submission.subject}/${submission.chapter}`);
-          const newQuestionRef = push(questionsRef);
-          debug('Saving question to:', `questions/${submission.subject}/${submission.chapter}`, 'data:', q);
-          await set(newQuestionRef, q);
-        }
-        await ctx.reply(
-          `✅ Successfully added ${submission.count} questions to *${submission.subject}* (Chapter: *${submission.chapter}*).`
-        );
-        delete pendingSubmissions[chat.id];
-      } catch (error) {
-        debug('Failed to save questions to Firebase:', error);
-        await ctx.reply('❌ Error: Unable to save questions to Firebase.');
-      }
-    }
-    return;
-  }
-
-  if (chat.id === ADMIN_ID && pendingSubmissions[chat.id] && msg.text && pendingSubmissions[chat.id].expectingImageFor) {
-    const submission = pendingSubmissions[chat.id];
-    const lastQuestion = submission.questions[submission.questions.length - 1];
-
-    if (msg.text.toLowerCase() === 'skip') {
-      lastQuestion.image = '';
-      submission.expectingImageFor = undefined;
-      if (submission.questions.length < submission.count) {
-        await ctx.reply(
-          `Image skipped. Please send the next question (${submission.questions.length + 1}/${submission.count}) as a quiz poll.`
-        );
-      }
-    } else if (msg.text.startsWith('http') && msg.text.match(/\.(jpg|jpeg|png|gif)$/i)) {
-      lastQuestion.image = msg.text;
-      submission.expectingImageFor = undefined;
-      if (submission.questions.length < submission.count) {
-        await ctx.reply(
-          `Image saved. Please send the next question (${submission.questions.length + 1}/${submission.count}) as a quiz poll.`
-        );
-      }
-    } else {
-      await ctx.reply(
-        'Please send a valid image URL (jpg, jpeg, png, or gif) or reply "skip" to proceed without an image.'
-      );
-    }
-    return;
-  }
-
-  if (msg.poll) {
-    const poll = msg.poll;
-    const pollJson = JSON.stringify(poll, null, 2);
+export function setupYakeenCommands(bot: Telegraf) {
+  // Command to access Yakeen content
+  bot.command(/yakeen_([a-zA-Z0-9_]+)/i, async (ctx) => {
+    const key = ctx.match[1];
+    debug(`Yakeen key requested: ${key}`);
 
     try {
-      const pollsRef = ref(db, 'polls');
-      const newPollRef = push(pollsRef);
-      await set(newPollRef, {
-        poll,
-        from: {
-          id: ctx.from?.id,
-          username: ctx.from?.username || null,
-          first_name: ctx.from?.first_name || null,
-          last_name: ctx.from?.last_name || null,
-        },
-        chat: {
-          id: ctx.chat.id,
-          type: ctx.chat.type,
-        },
-        receivedAt: Date.now(),
-      });
+      // Fetch all batches data from Firebase
+      const batchesRef = ref(db, 'batches');
+      const snapshot: DataSnapshot = await get(batchesRef);
+
+      if (!snapshot.exists()) {
+        return ctx.reply('No batches data found. Contact admin @itzfew');
+      }
+
+      const batchesData: Record<string, BatchData> = snapshot.val();
+      let found = false;
+      let messageId: number | null = null;
+
+      // Search through all batches, subjects, and chapters for the key
+      for (const [batch, subjects] of Object.entries(batchesData)) {
+        for (const [subject, chapters] of Object.entries(subjects)) {
+          for (const [chapter, data] of Object.entries(chapters)) {
+            if (data.keys && data.keys[key]) {
+              messageId = data.keys[key];
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+        if (found) break;
+      }
+
+      if (found && messageId) {
+        try {
+          // Fixed: Include fromChatId (CHANNEL_ID) for forwardMessage
+          await ctx.telegram.forwardMessage(ctx.chat.id, CHANNEL_ID, messageId);
+          debug(`Successfully forwarded message with key ${key}`);
+        } catch (err) {
+          debug(`Failed to forward message: ${err}`);
+          await ctx.reply(
+            `Message with key ${key} exists but couldn't be forwarded. Contact admin @itzfew`
+          );
+        }
+      } else {
+        await ctx.reply(
+          `Key "${key}" not found. Contact admin @itzfew if you believe this is an error.`
+        );
+      }
     } catch (error) {
-      debug('Firebase save error:', error);
+      debug('Error fetching from Firebase:', error);
+      await ctx.reply('Error accessing content. Please try again later or contact admin @itzfew');
     }
-    await ctx.reply('Thanks for sending a poll! Your poll data has been sent to the admin.');
+  });
 
-    await ctx.telegram.sendMessage(
-      ADMIN_ID,
-      `📊 *New Telegram Poll received from @${ctx.from?.username || 'unknown'}:*\n\`\`\`json\n${pollJson}\n\`\`\``,
-      { parse_mode: 'Markdown' }
-    );
+  // Admin command to publish new keys
+  bot.command('publish', async (ctx) => {
+    if (ctx.from?.id !== ADMIN_ID) {
+      return ctx.reply('You are not authorized to use this command.');
+    }
 
-    return;
-  }
+    try {
+      // Fetch batches data to get subjects
+      const batchesRef = ref(db, 'batches');
+      const snapshot: DataSnapshot = await get(batchesRef);
 
-  await quizes()(ctx);
+      if (!snapshot.exists()) {
+        return ctx.reply('No batches data found in Firebase.');
+      }
 
-  if (isPrivateChat(chatType)) {
-    await greeting()(ctx);
-  }
-});
+      const batchesData: Record<string, BatchData> = snapshot.val();
+      const subjects = new Set<string>();
 
-export const startVercel = async (req: VercelRequest, res: VercelResponse) => {
-  await production(req, res, bot);
-};
+      // Collect all unique subjects across batches
+      for (const batch of Object.values(batchesData)) {
+        for (const subject of Object.keys(batch)) {
+          subjects.add(subject);
+        }
+      }
 
-if (ENVIRONMENT !== 'production') {
-  development(bot);
+      if (subjects.size === 0) {
+        return ctx.reply('No subjects found in Firebase.');
+      }
+
+      const subjectList = Array.from(subjects)
+        .map((subj, index) => `${index + 1}. ${subj}`)
+        .join('\n');
+
+      publishStates[ctx.from.id] = {
+        subject: undefined,
+        chapter: undefined,
+        awaitingKeys: false,
+      };
+
+      await ctx.reply(`Select a subject by replying with its number:\n\n${subjectList}`);
+    } catch (error) {
+      debug('Error in publish command:', error);
+      await ctx.reply('Error fetching subjects. Please try again later.');
+    }
+  });
+
+  // Handle subject and chapter selection, and key-value pairs
+  bot.on('message', async (ctx: Context) => {
+    if (!ctx.from || !publishStates[ctx.from.id] || ctx.from.id !== ADMIN_ID) return;
+
+    const state = publishStates[ctx.from.id];
+    const msg = ctx.message as any;
+
+    if (!state.subject && !state.awaitingKeys) {
+      // Subject selection
+      const subjectNumber = parseInt(msg.text?.trim() || '', 10);
+      if (isNaN(subjectNumber)) return;
+
+      try {
+        const batchesRef = ref(db, 'batches');
+        const snapshot: DataSnapshot = await get(batchesRef);
+
+        if (!snapshot.exists()) return;
+
+        const batchesData: Record<string, BatchData> = snapshot.val();
+        const subjects = new Set<string>();
+
+        for (const batch of Object.values(batchesData)) {
+          for (const subject of Object.keys(batch)) {
+            subjects.add(subject);
+          }
+        }
+
+        const subjectList = Array.from(subjects);
+        if (subjectNumber < 1 || subjectNumber > subjectList.length) {
+          return ctx.reply('Invalid subject number. Please try again.');
+        }
+
+        state.subject = subjectList[subjectNumber - 1];
+
+        // Fetch chapters for this subject
+        const chapters: string[] = [];
+        for (const batch of Object.values(batchesData)) {
+          if (batch[state.subject]) {
+            chapters.push(...Object.keys(batch[state.subject]));
+          }
+        }
+
+        if (chapters.length === 0) {
+          delete publishStates[ctx.from.id];
+          return ctx.reply(`No chapters found for subject ${state.subject}`);
+        }
+
+        const uniqueChapters = [...new Set(chapters)];
+        const chapterList = uniqueChapters
+          .map((chap, index) => `${index + 1}. ${chap}`)
+          .join('\n');
+
+        await ctx.reply(
+          `Selected subject: ${state.subject}\n\n` +
+          `Select a chapter by replying with its number:\n\n${chapterList}`
+        );
+      } catch (error) {
+        debug('Error in subject selection:', error);
+        await ctx.reply('Error processing your request. Please try again.');
+      }
+    } else if (state.subject && !state.chapter && !state.awaitingKeys) {
+      // Chapter selection
+      const chapterNumber = parseInt(msg.text?.trim() || '', 10);
+      if (isNaN(chapterNumber)) return;
+
+      try {
+        const batchesRef = ref(db, 'batches');
+        const snapshot: DataSnapshot = await get(batchesRef);
+
+        if (!snapshot.exists()) return;
+
+        const batchesData: Record<string, BatchData> = snapshot.val();
+        const chapters: string[] = [];
+
+        for (const batch of Object.values(batchesData)) {
+          if (batch[state.subject!]) {
+            chapters.push(...Object.keys(batch[state.subject!]));
+          }
+        }
+
+        const uniqueChapters = [...new Set(chapters)];
+        if (chapterNumber < 1 || chapterNumber > uniqueChapters.length) {
+          return ctx.reply('Invalid chapter number. Please try again.');
+        }
+
+        state.chapter = uniqueChapters[chapterNumber - 1];
+        state.awaitingKeys = true;
+
+        await ctx.reply(
+          `Selected chapter: ${state.chapter}\n\n` +
+          `Please send the keys and message IDs in the format:\n` +
+          `key1:123,key2:456,key3:789\n\n` +
+          `Where the numbers are the message IDs in the channel.`
+        );
+      } catch (error) {
+        debug('Error in chapter selection:', error);
+        await ctx.reply('Error processing your request. Please try again.');
+      }
+    } else if (state.awaitingKeys && msg.text) {
+      // Key-value pairs input
+      const keyValuePairs: string[] = msg.text
+        .split(',')
+        .map((pair: string) => pair.trim())
+        .filter((pair: string) => pair.includes(':'));
+
+      if (keyValuePairs.length === 0) {
+        return ctx.reply(
+          'Invalid format. Please use: key1:123,key2:456\n' +
+          'Where numbers are message IDs in the channel.'
+        );
+      }
+
+      const entries: Record<string, number> = {};
+      let hasError = false;
+
+      for (const pair of keyValuePairs) {
+        const [key, value]: string[] = pair.split(':').map((part: string) => part.trim());
+        const messageId = parseInt(value, 10);
+
+        if (!key || isNaN(messageId)) {
+          hasError = true;
+          continue;
+        }
+
+        entries[key] = messageId;
+      }
+
+      if (Object.keys(entries).length === 0) {
+        return ctx.reply('No valid key:value pairs found. Please try again.');
+      }
+
+      if (hasError) {
+        await ctx.reply('Some entries were invalid and skipped. Processing valid ones...');
+      }
+
+      try {
+        // Find the first batch that has this subject and chapter
+        const batchesRef = ref(db, 'batches');
+        const snapshot: DataSnapshot = await get(batchesRef);
+
+        if (!snapshot.exists()) return;
+
+        const batchesData: Record<string, BatchData> = snapshot.val();
+        let targetBatch: string | null = null;
+
+        for (const [batch, subjects] of Object.entries(batchesData)) {
+          if (subjects[state.subject!]?.[state.chapter!]) {
+            targetBatch = batch;
+            break;
+          }
+        }
+
+        if (!targetBatch) {
+          // If no existing batch has this subject/chapter, use the first batch
+          targetBatch = Object.keys(batchesData)[0];
+        }
+
+        const updatePath = `batches/${targetBatch}/${state.subject}/${state.chapter}/keys`;
+        const keysRef = ref(db, updatePath);
+
+        // Get existing keys to merge with new ones
+        const existingSnapshot: DataSnapshot = await get(keysRef);
+        const existingKeys = existingSnapshot.exists() ? existingSnapshot.val() : {};
+        const mergedKeys = { ...existingKeys, ...entries };
+
+        await set(keysRef, mergedKeys);
+
+        await ctx.reply(
+          `✅ Successfully added/updated ${Object.keys(entries).length} keys ` +
+          `for ${state.subject} (${state.chapter}) in batch ${targetBatch}.`
+        );
+
+        // Clear the publish state
+        delete publishStates[ctx.from.id];
+      } catch (error) {
+        debug('Error saving keys:', error);
+        await ctx.reply('Error saving keys to Firebase. Please try again.');
+      }
+    }
+  });
 }
